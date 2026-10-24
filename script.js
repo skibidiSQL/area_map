@@ -36,7 +36,9 @@ let S = blank(),
     sh = null,
     route = null,
     unlocked = false,
-    WS, RS, dr = null, pt = null, dg = null;
+    WS, RS, dr = null, pt = null, dg = null,
+    undoStack = [];
+
 let F = S.floors[0], fi = 0; // F — активный этаж
 
 function save() { if (window.Core && Core.onSave) Core.onSave(S); }
@@ -48,6 +50,34 @@ function toast(t) {
   clearTimeout(toast.t);
   toast.t = setTimeout(() => e.style.display = 'none', 2600);
 }
+
+function pushState() {
+  if (mode !== 'o') return;
+  const cur = JSON.stringify({ fi, S });
+  if (undoStack.length === 0 || undoStack[undoStack.length - 1] !== cur) {
+    undoStack.push(cur);
+    if (undoStack.length > 30) undoStack.shift();
+  }
+}
+
+function undo() {
+  if (mode !== 'o' || undoStack.length === 0) return;
+  const prev = JSON.parse(undoStack.pop());
+  S = prev.S;
+  fi = prev.fi;
+  if (fi >= S.floors.length) fi = Math.max(0, S.floors.length - 1);
+  F = S.floors[fi];
+  sh = null; route = null; dr = null; pt = null; dg = null;
+  save(); plan(); sheet();
+  toast('Отменено');
+}
+
+window.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
+    undo();
+    e.preventDefault();
+  }
+});
 
 const P = id => F.pois.find(p => p.id == id),
       N = id => F.panos.find(p => p.id == id),
@@ -177,6 +207,7 @@ function goFloor(i) {
 }
 
 function addFloor() {
+  pushState();
   const f = floor('Этаж ' + (S.floors.length + 1));
   S.floors.push(f); fi = S.floors.length - 1; F = f;
   route = null; sh = { t: 'menu' }; tool = 'menu';
@@ -191,7 +222,7 @@ $('#floors').onclick = e => {
 };
 
 function tools() {
-  $('#tools').innerHTML = [['sel', '☝ Выбор'], ['room', '▭ Зал'], ['cor', '▬ Коридор'], ['wall', '⬜ Стена'], ['era', '⌫ Ластик'], ['poi', '📍 Точка'], ['pano', '📷 Панорама'], ['menu', '⚙ Карта']]
+  $('#tools').innerHTML = [['sel', '☝ Выбор'], ['room', '▭ Зал'], ['cor', '▬ Коридор'], ['wall', '⬜ Стена'], ['era', '⌫ Ластик'], ['poi', '📍 Точка'], ['pano', '📷 Панорама'], ['undo', '↩ Назад'], ['menu', '⚙ Карта']]
     .map(([t, l]) => `<button data-t="${t}" class="${tool == t ? 'on' : ''}">${l}</button>`)
     .join('');
 }
@@ -250,6 +281,7 @@ function paint(x, y, ed) {
 }
 
 svg.onpointerdown = e => {
+  if (mode == 'o') pushState();
   const [x, y] = cell(e);
   const ed = edge(e);
   svg.setPointerCapture(e.pointerId);
@@ -494,6 +526,7 @@ $('#sheet').onchange = async e => {
   if (t.dataset.f == 'cat') { sheet(); }
   
   if (t.dataset.up && t.files[0]) {
+    pushState();
     const file = t.files[0];
     
     if (t.dataset.up == 'bg') {
@@ -553,6 +586,8 @@ $('#sheet').onclick = e => {
   if (!b) return;
   const a = b.dataset.a;
   
+  if (['delp', 'deln', 'delr', 'nobg', 'imp', 'delf'].includes(a)) pushState();
+
   if (a == 'x') { sh = null; }
   if (a == 'to') { route = { from: (F.pois.find(p => p.id != sh.id) || {}).id, to: sh.id }; sh = { t: 'rt' }; }
   if (a == 'pano') { openPano(b.dataset.id, undefined); return; }
@@ -606,6 +641,7 @@ $('#rbtn').onclick = () => {
 $('#tools').onclick = e => {
   const b = e.target.closest('[data-t]');
   if (!b) return;
+  if (b.dataset.t == 'undo') { undo(); return; }
   tool = b.dataset.t;
   if (tool == 'menu') { sh = { t: 'menu' }; }
   else if (sh && sh.t == 'menu') sh = null;
@@ -811,6 +847,7 @@ $('#pv').onclick = e => {
 window.Core = {
   open(d, r) {
     S = migrate(d); fi = 0; F = S.floors[0]; TX = {}; route = null; sh = null;
+    undoStack = [];
     if (V) { $('#pv').hidden = true; V = null; }
     unlocked = r != 'view';
     setMode('v');
