@@ -521,7 +521,6 @@ textarea {
   z-index: 40;
   display: none;
 }
-/* ---------- аккаунт, кабинет, доступ, мобильная вёрстка ---------- */
 [hidden] { display: none !important; }
 body { min-height: 100dvh; -webkit-tap-highlight-color: transparent; }
 #sheet { max-height: 75dvh; }
@@ -566,19 +565,16 @@ body[data-nav] #nbk { display: block; }
 #dlg { position: fixed; inset: 0; background: #0008; display: grid; place-items: center; z-index: 35; }
 #dlg > div { background: var(--card); border-radius: 20px; padding: 22px; width: min(420px, 92vw); max-height: 90dvh; overflow: auto; }
 
-/* в режиме карты «плюсик» главной не показывается; удаление карт в панели */
 body[data-v=map] #home { display: none; }
 .nr { display: flex; align-items: center; gap: 2px; }
 .nr .ni { flex: 1; min-width: 0; }
 .nx { flex: none; border: 0; background: none; cursor: pointer; padding: 8px; border-radius: 10px; opacity: .55; }
 .nx:hover { opacity: 1; background: var(--bg); }
 
-/* встроенный режим (/embed): без шапки и панели */
 body[data-embed] :is(header, #hb, #nav, #nbk) { display: none; }
 body[data-embed] main { padding-top: 8px; }
 #dlg textarea { font: 12px/1.4 ui-monospace, Consolas, monospace; }
 
-/* ---------- этажи ---------- */
 #floors { display: flex; gap: 6px; overflow-x: auto; padding: 10px 4px 2px; }
 #floors button { flex: none; border: 1px solid var(--line); background: var(--card); border-radius: 99px; padding: 6px 14px; font-weight: 600; font-size: 13px; cursor: pointer; }
 #floors button.on { background: var(--red); border-color: var(--red); color: var(--on); }
