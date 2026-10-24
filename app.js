@@ -6,7 +6,7 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let BASE = location.origin + location.pathname.replace(/\/$/, '');
 const PKG = window.__PKG || null,
-      THREE_URL = 'vendor/three.min.js',
+      THREE_URL = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
       EMB = /\/embed\/?$/.test(location.pathname);
 let rec = null, role = 'view', st = 0;
 
