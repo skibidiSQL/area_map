@@ -1,4 +1,3 @@
-/* Карта пространства: бессерверная PWA-версия (Supabase + IndexedDB). */
 (() => {
 const SUPABASE_URL = 'https://rlzgzbviuvkuzhcfyzcg.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_STl70_TA-R8cRWX9qsw_DA_GxuGw0WZ';
@@ -15,7 +14,7 @@ const body = document.body,
       view = v => body.dataset.v = v,
       nav_ = on => body.toggleAttribute('data-nav', on),
       dq = () => JSON.parse(localStorage.getItem('tk-del') || '[]'),
-      dlg = h => { const d = $('#dlg'); d.firstElementChild.className = ''; d.firstElementChild.innerHTML = h; d.hidden = false; },
+      dlg = h => { const d = $('#dlg'); d.firstElementChild.innerHTML = h; d.hidden = false; },
       undlg = () => $('#dlg').hidden = true,
       link = r => BASE + '/#/m/' + r.id + '/' + r.share.token,
       esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -23,12 +22,8 @@ const body = document.body,
 const DB = (() => {
   let p;
   const open = () => p || (p = new Promise((ok, no) => {
-    const r = indexedDB.open('tk-spacemap', 2);
-    r.onupgradeneeded = () => {
-      const d = r.result;
-      if (!d.objectStoreNames.contains('maps')) d.createObjectStore('maps', { keyPath: 'id' });
-      if (!d.objectStoreNames.contains('events')) d.createObjectStore('events', { keyPath: 'k' });
-    };
+    const r = indexedDB.open('tk-spacemap', 1);
+    r.onupgradeneeded = () => { r.result.createObjectStore('maps', { keyPath: 'id' }); };
     r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error);
   }));
   const tx = async (s, m, f) => {
@@ -91,7 +86,7 @@ async function createMap() {
 function openRec(r, ro, solo) {
   rec = r; role = ro;
   body.toggleAttribute('data-solo', !!solo);
-  $('#shr').hidden = $('#sts').hidden = ro != 'owner' && ro != 'edit';
+  $('#shr').hidden = ro != 'owner' && ro != 'edit'; 
   view('map'); nav_(!solo && innerWidth >= 900);
   Core.open(r.data, ro);
   nav();
@@ -124,16 +119,6 @@ async function doSync() {
     const { error } = await supabase.from('maps').delete().eq('id', id);
     if (error) { console.error('sync delete', error); toast('Облако: ' + error.message); break; }
     localStorage.setItem('tk-del', JSON.stringify(dq().filter(x => x != id)));
-  }
-
-  if (!evOff) { // события статистики: отправляем пачками, после успеха удаляем с устройства
-    let ev = []; try { ev = await DB.all('events'); } catch {}
-    while (ev.length && !evOff) {
-      const part = ev.splice(0, 200),
-            { error } = await supabase.from('events').upsert(part.map(({ k, ...r }) => ({ id: k, ...r })), { onConflict: 'id', ignoreDuplicates: true });
-      if (error) { console.warn('events', error.message); evOff = true; break; }
-      for (const e of part) await DB.del('events', e.k).catch(() => {});
-    }
   }
 
   let all = [];
@@ -169,33 +154,6 @@ async function pull() {
   }
 }
 
-/* ---------- статистика просмотров ---------- */
-let evOff = false; // таблицы events в облаке нет — копим события на устройстве
-const vid = (() => { try { let v = localStorage.getItem('tk-vid'); if (!v) localStorage.setItem('tk-vid', v = rnd().slice(0, 16)); return v; } catch { return 'anon'; } })();
-
-Core.onTrack = (kind, target) => {
-  if (!rec) return;
-  DB.put('events', { k: Date.now() + '_' + rnd().slice(0, 6), map_id: rec.id, kind, target: String(target || ''), vid, own: role != 'view', ts: Date.now() })
-    .then(() => sync()).catch(() => {});
-};
-
-// события за последние days дней: из облака + ещё не отправленные с этого устройства
-Core.fetchEvents = async days => {
-  const since = Date.now() - days * 864e5, seen = new Set(), out = [];
-  let err = null;
-  if (supabase && navigator.onLine) {
-    for (let from = 0; from < 20000; from += 1000) {
-      const { data, error } = await supabase.from('events').select('id,kind,target,vid,own,ts').eq('map_id', rec.id).gte('ts', since).order('ts', { ascending: false }).range(from, from + 999);
-      if (error) { err = error.message; break; }
-      data.forEach(e => { seen.add(e.id); out.push({ ...e, ts: Number(e.ts) }); });
-      if (data.length < 1000) break;
-    }
-  } else err = 'нет подключения к облаку';
-  try { (await DB.all('events')).filter(e => e.map_id == rec.id && e.ts >= since && !seen.has(e.k)).forEach(e => out.push(e)); } catch {}
-  return { ev: out, err };
-};
-$('#sts').onclick = () => rec && Core.showStats(rec);
-
 function dropRemote(id) { localStorage.setItem('tk-del', JSON.stringify([...dq(), id])); sync(); }
 
 function shareDlg() {
@@ -215,18 +173,16 @@ async function pack() {
   try {
     const t = u => fetch(u).then(r => r.ok ? r.text() : Promise.reject(u)), z = s => s.replace(/<\/script/gi, '<\\/script'),
           toData = async u => { const b = await (await fetch(u)).blob(); return new Promise(ok => { const f = new FileReader(); f.onload = () => ok(f.result); f.readAsDataURL(b); }); };
-    const EXTRA = ['pano.js', 'capture.js', 'stats.js'],
-          [h, css, core, app, three, ...ex] = await Promise.all(['index.html', 'style.css', 'script.js', 'app.js', THREE_URL, ...EXTRA].map(t)),
+    const [h, css, core, app, three] = await Promise.all(['index.html', 'style.css', 'script.js', 'app.js', THREE_URL].map(t)),
           r = rec.share.mode == 'edit' ? 'edit' : 'view',
           inl = async u => /^https?:/.test(u || '') ? toData(u).catch(() => u) : u,
           floors = await Promise.all((rec.data.floors || []).map(async f => ({ ...f, bg: await inl(f.bg), panos: await Promise.all(f.panos.map(async p => ({ ...p, src: await inl(p.src) }))) }))),
           m = { ...rec, data: { ...rec.data, floors }, share: { mode: rec.share.mode, token: '' }, dirty: false },
-          out0 = h.replace(/<link rel="stylesheet" href="style.css">/, () => `<style>${css}</style>`)
+          out = h.replace(/<link rel="stylesheet" href="style.css">/, () => `<style>${css}</style>`)
             .replace(/<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase[^"]*"><\/script>/, '')
             .replace(/<script src="https:\/\/cdnjs[^"]*three[^"]*"><\/script>/, () => `<script>${z(three)}</script>`)
             .replace(/<script src="script.js"><\/script>/, () => `<script>window.__PKG=${z(JSON.stringify({ map: m, role: r }))}</script><script>${z(core)}</script>`)
             .replace(/<script src="app.js"><\/script>/, () => `<script>${z(app)}</script>`);
-    const out = EXTRA.reduce((o, n, i) => o.replace(`<script src="${n}"></script>`, () => `<script>${z(ex[i])}</script>`), out0);
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([out], { type: 'text/html' }));
     a.download = (rec.name.replace(/[^\p{L}\p{N}]+/gu, '_') || 'map') + '.html';
     a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4e4);
@@ -274,15 +230,13 @@ async function openLink(id, tok) {
   openRec(r, ro, !!tok);
 }
 
-/* ---------- загрузка панорам в Supabase Storage ---------- */
-// уменьшаем до 4096 px по ширине: больше многие телефоны не принимают как WebGL-текстуру (будет чёрная сфера)
 const shrink = (f, w, q) => new Promise((ok, no) => {
   const u = URL.createObjectURL(f), i = new Image();
   i.onload = () => {
     URL.revokeObjectURL(u);
     const k = Math.min(1, w / i.width), c = document.createElement('canvas');
     c.width = Math.round(i.width * k); c.height = Math.round(i.height * k);
-    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.imageSmoothingQuality = 'high';
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
     g.drawImage(i, 0, 0, c.width, c.height);
     c.toBlob(b => b ? ok(b) : no(new Error('toBlob')), 'image/jpeg', q);
   };
@@ -290,28 +244,20 @@ const shrink = (f, w, q) => new Promise((ok, no) => {
   i.src = u;
 });
 
-async function putBlob(blob, prefix = '') {
+window.uploadImage = async function (file, { max = 4096, q = .85, prefix = '' } = {}) {
   if (!supabase) { toast('Облако недоступно (не загрузился Supabase)'); return null; }
   if (!navigator.onLine) { toast('Нет интернета — файл сейчас не загрузить'); return null; }
   try {
-    const name = prefix + Date.now() + '_' + rnd().slice(0, 8) + '.jpg';
+    const blob = await shrink(file, max, q), name = prefix + Date.now() + '_' + rnd().slice(0, 8) + '.jpg';
     const { error } = await supabase.storage.from('panoramas').upload(name, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
     if (error) { console.error('upload', error); toast('Ошибка загрузки: ' + error.message); return null; }
     const url = supabase.storage.from('panoramas').getPublicUrl(name).data.publicUrl;
     const chk = await fetch(url, { method: 'HEAD' }).catch(() => null);
     if (!chk || !chk.ok) { console.error('public url check', url, chk && chk.status); toast('Файл загружен, но по ссылке недоступен (HTTP ' + (chk ? chk.status : 'сеть/CORS') + '). Сделайте бакет panoramas публичным.'); return null; }
     return url;
-  } catch (e) { console.error(e); toast('Не удалось загрузить файл'); return null; }
-}
-window.uploadBlob = putBlob;
-window.uploadImage = async function (file, { max = 4096, q = .85, prefix = '' } = {}) {
-  try { return await putBlob(await shrink(file, max, q), prefix); }
-  catch (e) { console.error(e); toast('Не удалось обработать файл'); return null; }
+  } catch (e) { console.error(e); toast('Не удалось обработать файл'); return null; }
 };
-// панорамы: Pano.prepare проверяет пропорции 2:1, понимает метаданные Photo Sphere (GPano),
-// уменьшает ступенчато и в безопасный для iOS размер — резкость сохраняется
-window.uploadPanorama = async file => { const r = await Pano.prepare(file); return r ? putBlob(r.blob) : null; };
-/* ---------------------------------------------------------- */
+window.uploadPanorama = file => window.uploadImage(file, { max: 8192, q: .88 });
 
 (async () => {
   body.toggleAttribute('data-embed', EMB);
