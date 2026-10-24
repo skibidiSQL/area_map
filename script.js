@@ -289,16 +289,41 @@ $('#sheet').oninput = e => {
   }
 };
 
-$('#sheet').onchange = e => {
+/* --- НОВАЯ АСИНХРОННАЯ ЛОГИКА ЗАГРУЗКИ --- */
+$('#sheet').onchange = async e => {
   const t = e.target;
   if (t.dataset.r) { route[t.dataset.r] = t.value; sheet(); plan(); return; }
   if (t.dataset.f == 'cat') { sheet(); }
-  if (t.dataset.up && t.files[0]) img(t.files[0], t.dataset.up == 'bg' ? 1600 : 2048, src => {
-    if (t.dataset.up == 'bg') { S.bg = src; }
-    else { const n = N(sh.id); n.src = src; n.demo = null; delete TX[n.id]; }
-    save(); plan(); sheet(); toast('Изображение загружено');
-  });
+  
+  if (t.dataset.up && t.files[0]) {
+    const file = t.files[0];
+    
+    if (t.dataset.up == 'bg') {
+        img(file, 1600, src => { 
+            S.bg = src; 
+            save(); plan(); sheet(); toast('Подложка применена');
+        });
+    } else {
+        toast('Загружаем панораму в облако...');
+        try {
+            const publicUrl = await window.uploadPanorama(file);
+            
+            if (publicUrl) {
+                const n = N(sh.id); 
+                n.src = publicUrl; 
+                n.demo = null; 
+                delete TX[n.id];
+                save(); plan(); sheet(); 
+            } else {
+                toast('Не удалось получить ссылку');
+            }
+        } catch (err) {
+            toast('Ошибка при загрузке');
+        }
+    }
+  }
 };
+/* ----------------------------------------- */
 
 function img(f, mx, cb) {
   const fr = new FileReader();
