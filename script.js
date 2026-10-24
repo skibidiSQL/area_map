@@ -13,14 +13,14 @@ const $ = s => document.querySelector(s),
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const brg = (a, b) => Math.atan2(b.x - a.x, -(b.y - a.y)) * 180 / Math.PI;
 
-const floor = (name, o = {}) => ({ id: 'f' + uid(), name, bg: null, bgo: .7, cor: [], rooms: [], pois: [], panos: [], ...o });
+const floor = (name, o = {}) => ({ id: 'f' + uid(), name, bg: null, bgo: .7, cor: [], walls: [], rooms: [], pois: [], panos: [], ...o });
 const blank = () => ({ name: '', floors: [floor('Этаж 1')] });
 
 // старые карты (один этаж без floors) переводим в новый формат
 function migrate(d) {
   if (!d.floors) {
-    d.floors = [floor('Этаж 1', { id: 'f1', bg: d.bg || null, cor: d.cor || [], rooms: d.rooms || [], pois: d.pois || [], panos: d.panos || [] })];
-    delete d.bg; delete d.cor; delete d.rooms; delete d.pois; delete d.panos;
+    d.floors = [floor('Этаж 1', { id: 'f1', bg: d.bg || null, cor: d.cor || [], walls: d.walls || [], rooms: d.rooms || [], pois: d.pois || [], panos: d.panos || [] })];
+    delete d.bg; delete d.cor; delete d.rooms; delete d.pois; delete d.panos; delete d.walls;
   }
   return d;
 }
@@ -64,6 +64,7 @@ function mk() {
         RS.add(k);
       }
   });
+  if (F.walls) F.walls.forEach(w => { WS.delete(w); RS.delete(w); });
 }
 
 function bfs(a, b) {
@@ -105,6 +106,13 @@ function plan() {
     if (!WS.has((x + 1) + ',' + y)) w += `M${x + 1} ${y}v1`;
   });
   
+  if (F.walls) {
+    F.walls.forEach(k => {
+      const [x, y] = k.split(',').map(Number);
+      h += `<rect x="${x}" y="${y}" width="1.02" height="1.02" fill="#ffffff" stroke="var(--line)" stroke-width=".05"/>`;
+    });
+  }
+  
   if (mode == 'o') {
     for (let i = 0; i <= GW; i++) g += `M${i} 0v${GH}`;
     for (let j = 0; j <= GH; j++) g += `M0 ${j}h${GW}`;
@@ -132,7 +140,7 @@ function plan() {
   if (mode == 'o' && !F.bg && !WS.size) h += `<text x="14" y="9" class="lbl" style="font-size:.6px;fill:var(--mut);stroke:none">Загрузите готовый план (⚙ Карта) или нарисуйте залы и коридоры</text>`;
   svg.innerHTML = h;
   floorsBar();
-  svg.style.touchAction = mode == 'o' && ['room', 'cor', 'era'].includes(tool) ? 'none' : 'pan-y';
+  svg.style.touchAction = mode == 'o' && ['room', 'cor', 'wall', 'era'].includes(tool) ? 'none' : 'pan-y';
   $('#mname').textContent = S.name;
   $('#chips').innerHTML = F.pois.map(p => `<button data-c="${p.id}">${CATS[p.cat][0]} ${esc(p.name)}</button>`).join('');
 }
@@ -167,7 +175,7 @@ $('#floors').onclick = e => {
 };
 
 function tools() {
-  $('#tools').innerHTML = [['sel', '☝ Выбор'], ['room', '▭ Зал'], ['cor', '▬ Коридор'], ['era', '⌫ Ластик'], ['poi', '📍 Точка'], ['pano', '📷 Панорама'], ['menu', '⚙ Карта']]
+  $('#tools').innerHTML = [['sel', '☝ Выбор'], ['room', '▭ Зал'], ['cor', '▬ Коридор'], ['wall', '⬜ Стена'], ['era', '⌫ Ластик'], ['poi', '📍 Точка'], ['pano', '📷 Панорама'], ['menu', '⚙ Карта']]
     .map(([t, l]) => `<button data-t="${t}" class="${tool == t ? 'on' : ''}">${l}</button>`)
     .join('');
 }
@@ -190,9 +198,18 @@ function cell(e) {
 
 function paint(x, y) {
   const k = x + ',' + y;
-  if (tool == 'cor' && !WS.has(k)) F.cor.push(k);
+  if (tool == 'cor' && !WS.has(k)) { 
+    F.cor.push(k); 
+    if (F.walls && F.walls.includes(k)) F.walls = F.walls.filter(w => w != k);
+  }
+  if (tool == 'wall') { 
+    if (!F.walls) F.walls = [];
+    if (!F.walls.includes(k)) F.walls.push(k);
+    if (F.cor) F.cor = F.cor.filter(c => c != k);
+  }
   if (tool == 'era') {
-    F.cor = F.cor.filter(c => c != k);
+    if (F.cor) F.cor = F.cor.filter(c => c != k);
+    if (F.walls) F.walls = F.walls.filter(w => w != k);
     F.rooms = F.rooms.filter(r => !(x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h));
   }
   plan();
@@ -209,7 +226,7 @@ svg.onpointerdown = e => {
   }
   if (mode == 'o') {
     if (tool == 'room') dr = { x0: x, y0: y, x1: x, y1: y };
-    if (tool == 'cor' || tool == 'era') paint(x, y);
+    if (tool == 'cor' || tool == 'wall' || tool == 'era') paint(x, y);
   }
 };
 
@@ -223,7 +240,7 @@ svg.onpointermove = e => {
     return;
   }
   if (dr) { dr.x1 = x; dr.y1 = y; plan(); }
-  else if (mode == 'o' && (tool == 'cor' || tool == 'era')) paint(x, y);
+  else if (mode == 'o' && (tool == 'cor' || tool == 'wall' || tool == 'era')) paint(x, y);
 };
 
 svg.onpointerup = e => {
@@ -242,7 +259,7 @@ svg.onpointerup = e => {
     plan();
     sheet();
   }
-  else if (mode == 'o' && (tool == 'cor' || tool == 'era')) { save(); }
+  else if (mode == 'o' && (tool == 'cor' || tool == 'wall' || tool == 'era')) { save(); }
   else if (!pt.m) { tap(x, y); }
   pt = null;
 };
@@ -384,6 +401,10 @@ function cleanFloor(f, used) {
     const p = k.split(',').map(Number);
     return p.length == 2 && p.every(Number.isInteger) && inGrid(p[0], p[1]);
   }))];
+  const walls = [...new Set(arr(f.walls).map(c => Array.isArray(c) ? c.join(',') : String(c)).filter(k => {
+    const p = k.split(',').map(Number);
+    return p.length == 2 && p.every(Number.isInteger) && inGrid(p[0], p[1]);
+  }))];
   const rooms = arr(f.rooms).map(r => ({ x: int(r.x), y: int(r.y), w: int(r.w), h: int(r.h), name: String(r.name ?? 'Зал'), id: r.id }))
     .filter(r => [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0 && inGrid(r.x, r.y))
     .map(r => ({ ...r, w: Math.min(r.w, GW - r.x), h: Math.min(r.h, GH - r.y), id: uniq(r.id, 'r') }));
@@ -395,7 +416,7 @@ function cleanFloor(f, used) {
       src: okUrl(n.src) ? n.src : (n.src == '…' ? '…' : undefined), hs: arr(n.hs).filter(h => ids.has(h.poi) && Number.isFinite(+h.yaw) && Number.isFinite(+h.pitch)).map(h => ({ poi: h.poi, yaw: +h.yaw, pitch: +h.pitch })) }))
     .filter(n => Number.isFinite(n.x) && Number.isFinite(n.y) && inGrid(n.x, n.y))
     .map(n => { n.id = uniq(n.id, 'n'); if (!n.src) { delete n.src; n.demo = n.name; } return n; });
-  return { name: String(f.name || ''), bg: f.bg == '…' ? '…' : (okUrl(f.bg) ? f.bg : null), bgo: Number.isFinite(+f.bgo) ? Math.min(1, Math.max(.1, +f.bgo)) : .7, cor, rooms, pois, panos };
+  return { name: String(f.name || ''), bg: f.bg == '…' ? '…' : (okUrl(f.bg) ? f.bg : null), bgo: Number.isFinite(+f.bgo) ? Math.min(1, Math.max(.1, +f.bgo)) : .7, cor, walls, rooms, pois, panos };
 }
 
 function importPlan(text) {
@@ -518,11 +539,11 @@ $('#sheet').onclick = e => {
           (f.panos || []).forEach(p => { p.src = old[p.id]; });
         });
         S = { ...S, ...j };
-        S.floors.forEach(f => Object.assign(f, { cor: f.cor || [], rooms: f.rooms || [], pois: f.pois || [], panos: f.panos || [] }));
+        S.floors.forEach(f => Object.assign(f, { cor: f.cor || [], walls: f.walls || [], rooms: f.rooms || [], pois: f.pois || [], panos: f.panos || [] }));
       } else { // старый формат — применяем к текущему этажу
         const keep = {}; F.panos.forEach(p => keep[p.id] = p.src);
         (j.panos || []).forEach(p => { p.src = keep[p.id]; });
-        Object.assign(F, { cor: j.cor || [], rooms: j.rooms || [], pois: j.pois || [], panos: j.panos || [] });
+        Object.assign(F, { cor: j.cor || [], walls: j.walls || [], rooms: j.rooms || [], pois: j.pois || [], panos: j.panos || [] });
         if (j.name) S.name = j.name;
       }
       fi = Math.min(fi, S.floors.length - 1); F = S.floors[fi];
