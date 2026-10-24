@@ -343,6 +343,7 @@ function sheet() {
       `<label>План этажа: готовое изображение (JPG, PNG)</label><input type="file" accept="image/*" data-up="bg">` +
       (F.bg ? `<label>Прозрачность плана: ${Math.round((F.bgo ?? .7) * 100)}%</label><input type="range" min="10" max="100" value="${Math.round((F.bgo ?? .7) * 100)}" data-ff="bgo" style="width:100%">` : '') +
       `<div class="btns">${F.bg ? '<button data-a="nobg">Убрать план</button>' : ''}${S.floors.length > 1 ? '<button class="del" data-a="delf">Удалить этаж</button>' : ''}</div>` +
+      `<label>План этажа из JSON-файла</label><input type="file" accept=".json,application/json" data-up="json"><div class="btns"><button data-a="dlfloor">⬇ Скачать этаж (.json)</button></div><p><small>Файл можно загрузить на любой этаж; формат тот же, что даёт «Скачать этаж».</small></p>` +
       `<label>Данные карты (JSON) — копируйте или вставьте для переноса</label><textarea id="json" style="min-height:90px">${esc(JSON.stringify(full))}</textarea>` +
       `<div class="btns"><button data-a="imp">Применить JSON</button></div><p><small>Изменения сохраняются автоматически на устройстве.</small></p>`;
   }
@@ -369,6 +370,67 @@ $('#sheet').oninput = e => {
   }
 };
 
+/* ---------- план этажа из JSON-файла ---------- */
+const okUrl = u => typeof u == 'string' && /^(https?:\/\/|data:image\/)/.test(u) && !/["<>\s]/.test(u);
+const isEmpty = f => !f.bg && !f.cor.length && !f.rooms.length && !f.pois.length && !f.panos.length;
+
+// приводим этаж из файла к нашему формату: отбрасываем всё некорректное и выходящее за сетку
+function cleanFloor(f, used) {
+  if (!f || typeof f != 'object') throw new Error('bad floor');
+  const arr = v => Array.isArray(v) ? v : [], int = v => Number.isFinite(+v) ? Math.round(+v) : NaN,
+        inGrid = (x, y) => x >= 0 && y >= 0 && x < GW && y < GH,
+        uniq = (id, pre) => { id = id == null ? '' : String(id); while (!id || used.has(id)) id = pre + uid(); used.add(id); return id; };
+  const cor = [...new Set(arr(f.cor).map(c => Array.isArray(c) ? c.join(',') : String(c)).filter(k => {
+    const p = k.split(',').map(Number);
+    return p.length == 2 && p.every(Number.isInteger) && inGrid(p[0], p[1]);
+  }))];
+  const rooms = arr(f.rooms).map(r => ({ x: int(r.x), y: int(r.y), w: int(r.w), h: int(r.h), name: String(r.name ?? 'Зал'), id: r.id }))
+    .filter(r => [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0 && inGrid(r.x, r.y))
+    .map(r => ({ ...r, w: Math.min(r.w, GW - r.x), h: Math.min(r.h, GH - r.y), id: uniq(r.id, 'r') }));
+  const pois = arr(f.pois).map(p => ({ id: p.id, x: int(p.x), y: int(p.y), name: String(p.name ?? 'Точка'), cat: CATS[p.cat] ? p.cat : 'other', desc: String(p.desc ?? '') }))
+    .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y) && inGrid(p.x, p.y))
+    .map(p => ({ ...p, id: uniq(p.id, 'p') }));
+  const ids = new Set(pois.map(p => p.id));
+  const panos = arr(f.panos).map(n => ({ id: n.id, x: int(n.x), y: int(n.y), name: String(n.name ?? 'Панорама'), rot: Number.isFinite(+n.rot) ? +n.rot : 0,
+      src: okUrl(n.src) ? n.src : (n.src == '…' ? '…' : undefined), hs: arr(n.hs).filter(h => ids.has(h.poi) && Number.isFinite(+h.yaw) && Number.isFinite(+h.pitch)).map(h => ({ poi: h.poi, yaw: +h.yaw, pitch: +h.pitch })) }))
+    .filter(n => Number.isFinite(n.x) && Number.isFinite(n.y) && inGrid(n.x, n.y))
+    .map(n => { n.id = uniq(n.id, 'n'); if (!n.src) { delete n.src; n.demo = n.name; } return n; });
+  return { name: String(f.name || ''), bg: f.bg == '…' ? '…' : (okUrl(f.bg) ? f.bg : null), bgo: Number.isFinite(+f.bgo) ? Math.min(1, Math.max(.1, +f.bgo)) : .7, cor, rooms, pois, panos };
+}
+
+function importPlan(text) {
+  const j = JSON.parse(text);
+  if (!j || typeof j != 'object') throw new Error('bad json');
+  const list = Array.isArray(j.floors) ? j.floors : [j];
+  if (!list.length) throw new Error('no floors');
+  const multi = list.length > 1;
+  // id панорам должны быть уникальны на всей карте (по ним кэшируются текстуры)
+  const used = new Set();
+  if (!multi) S.floors.forEach(f => { if (f !== F) f.panos.forEach(p => used.add(p.id)); });
+  const clean = list.map(f => cleanFloor(f, used));
+  const had = multi ? S.floors.some(f => !isEmpty(f)) : !isEmpty(F);
+  if (had && !confirm(multi ? 'Заменить все этажи карты данными из файла?' : 'Заменить содержимое этажа «' + F.name + '» данными из файла?')) return null;
+  const keepBg = (c, old) => { if (c.bg == '…') c.bg = old ? old.bg : null; c.panos.forEach(p => { if (p.src == '…') { const o = old && old.panos.find(q => q.id == p.id); if (o && o.src) p.src = o.src; else { delete p.src; p.demo = p.name; } } }); };
+  if (multi) {
+    const old = S.floors;
+    S.floors = clean.map((c, i) => { keepBg(c, old[i]); return floor(c.name || 'Этаж ' + (i + 1), { ...c, name: c.name || 'Этаж ' + (i + 1) }); });
+    fi = 0; F = S.floors[0];
+  } else {
+    const c = clean[0]; keepBg(c, F);
+    Object.assign(F, c, { id: F.id, name: c.name || F.name });
+  }
+  TX = {}; route = null;
+  return clean.reduce((a, c) => ({ rooms: a.rooms + c.rooms.length, pois: a.pois + c.pois.length, panos: a.panos + c.panos.length }), { rooms: 0, pois: 0, panos: 0 });
+}
+
+function downloadFloor() {
+  const blob = new Blob([JSON.stringify(F, null, 1)], { type: 'application/json' }), a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = ((S.name || 'map') + '_' + F.name).replace(/[^\p{L}\p{N}]+/gu, '_') + '.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4e4);
+}
+
 /* --- НОВАЯ АСИНХРОННАЯ ЛОГИКА ЗАГРУЗКИ --- */
 $('#sheet').onchange = async e => {
   const t = e.target;
@@ -384,6 +446,12 @@ $('#sheet').onchange = async e => {
         try { url = window.uploadImage ? await window.uploadImage(file, { max: 2400, q: .9, prefix: 'plans/' }) : null; } catch {}
         if (url) { F.bg = url; save(); plan(); sheet(); toast('План загружен'); }
         else img(file, 1600, src => { F.bg = src; save(); plan(); sheet(); toast('План применён (сохранён на этом устройстве)'); });
+    } else if (t.dataset.up == 'json') {
+        try {
+          const r = importPlan(await file.text());
+          if (r) { save(); plan(); sheet(); toast('План загружен: залов ' + r.rooms + ', точек ' + r.pois + ', панорам ' + r.panos); }
+          else { sheet(); }
+        } catch (err) { console.error('plan json', err); toast('Не удалось прочитать файл: это не JSON плана'); sheet(); }
     } else {
         toast('Загружаем панораму в облако...');
         try {
@@ -436,6 +504,7 @@ $('#sheet').onclick = e => {
   if (a == 'delp') { F.pois = F.pois.filter(p => p.id != sh.id); F.panos.forEach(n => n.hs = n.hs.filter(h => h.poi != sh.id)); sh = null; }
   if (a == 'deln') { F.panos = F.panos.filter(p => p.id != sh.id); sh = null; }
   if (a == 'delr') { F.rooms = F.rooms.filter(r => r.id != sh.id); sh = null; }
+  if (a == 'dlfloor') { downloadFloor(); return; }
   if (a == 'nobg') { F.bg = null; }
   if (a == 'pin') { localStorage.removeItem(PK); unlocked = false; toast('PIN сброшен: задайте новый при следующем входе'); setMode('v'); }
   if (a == 'imp') {
