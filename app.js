@@ -79,7 +79,7 @@ async function createMap() {
   const name = $('#cn').value.trim();
   if (!name) return toast('Введите название');
   const r = { id: rnd(), name, desc: $('#cd').value.trim(), share: { mode: 'off', token: rnd() },
-              data: { name, bg: null, cor: [], rooms: [], pois: [], panos: [] }, updated: Date.now(), dirty: true };
+              data: { name, floors: [{ id: 'f1', name: 'Этаж 1', bg: null, bgo: .7, cor: [], rooms: [], pois: [], panos: [] }] }, updated: Date.now(), dirty: true };
   try { await DB.put('maps', r); } catch { return toast('Не удалось сохранить карту'); }
   openRec(r, 'owner'); sync();
 }
@@ -176,8 +176,9 @@ async function pack() {
           toData = async u => { const b = await (await fetch(u)).blob(); return new Promise(ok => { const f = new FileReader(); f.onload = () => ok(f.result); f.readAsDataURL(b); }); };
     const [h, css, core, app, three] = await Promise.all(['index.html', 'style.css', 'script.js', 'app.js', THREE_URL].map(t)),
           r = rec.share.mode == 'edit' ? 'edit' : 'view',
-          panos = await Promise.all(rec.data.panos.map(async p => /^https?:/.test(p.src || '') ? { ...p, src: await toData(p.src).catch(() => p.src) } : p)),
-          m = { ...rec, data: { ...rec.data, panos }, share: { mode: rec.share.mode, token: '' }, dirty: false },
+          inl = async u => /^https?:/.test(u || '') ? toData(u).catch(() => u) : u,
+          floors = await Promise.all((rec.data.floors || []).map(async f => ({ ...f, bg: await inl(f.bg), panos: await Promise.all(f.panos.map(async p => ({ ...p, src: await inl(p.src) }))) }))),
+          m = { ...rec, data: { ...rec.data, floors }, share: { mode: rec.share.mode, token: '' }, dirty: false },
           out = h.replace(/<link rel="stylesheet" href="style.css">/, () => `<style>${css}</style>`)
             .replace(/<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase[^"]*"><\/script>/, '')
             .replace(/<script src="https:\/\/cdnjs[^"]*three[^"]*"><\/script>/, () => `<script>${z(three)}</script>`)
@@ -232,29 +233,35 @@ async function openLink(id, tok) {
 
 /* ---------- загрузка панорам в Supabase Storage ---------- */
 // уменьшаем до 4096 px по ширине: больше многие телефоны не принимают как WebGL-текстуру (будет чёрная сфера)
-const shrink = (f, w) => new Promise((ok, no) => {
+const shrink = (f, w, q) => new Promise((ok, no) => {
   const u = URL.createObjectURL(f), i = new Image();
   i.onload = () => {
     URL.revokeObjectURL(u);
     const k = Math.min(1, w / i.width), c = document.createElement('canvas');
     c.width = Math.round(i.width * k); c.height = Math.round(i.height * k);
-    c.getContext('2d').drawImage(i, 0, 0, c.width, c.height);
-    c.toBlob(b => b ? ok(b) : no(new Error('toBlob')), 'image/jpeg', .85);
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(i, 0, 0, c.width, c.height);
+    c.toBlob(b => b ? ok(b) : no(new Error('toBlob')), 'image/jpeg', q);
   };
   i.onerror = () => no(new Error('bad image'));
   i.src = u;
 });
 
-window.uploadPanorama = async function (file) {
+window.uploadImage = async function (file, { max = 4096, q = .85, prefix = '' } = {}) {
   if (!supabase) { toast('Облако недоступно (не загрузился Supabase)'); return null; }
-  if (!navigator.onLine) { toast('Нет интернета — панораму сейчас не загрузить'); return null; }
+  if (!navigator.onLine) { toast('Нет интернета — файл сейчас не загрузить'); return null; }
   try {
-    const blob = await shrink(file, 4096), name = Date.now() + '_' + rnd().slice(0, 8) + '.jpg';
+    const blob = await shrink(file, max, q), name = prefix + Date.now() + '_' + rnd().slice(0, 8) + '.jpg';
     const { error } = await supabase.storage.from('panoramas').upload(name, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
     if (error) { console.error('upload', error); toast('Ошибка загрузки: ' + error.message); return null; }
-    return supabase.storage.from('panoramas').getPublicUrl(name).data.publicUrl;
+    const url = supabase.storage.from('panoramas').getPublicUrl(name).data.publicUrl;
+    const chk = await fetch(url, { method: 'HEAD' }).catch(() => null);
+    if (!chk || !chk.ok) { console.error('public url check', url, chk && chk.status); toast('Файл загружен, но по ссылке недоступен (HTTP ' + (chk ? chk.status : 'сеть/CORS') + '). Сделайте бакет panoramas публичным.'); return null; }
+    return url;
   } catch (e) { console.error(e); toast('Не удалось обработать файл'); return null; }
 };
+// панорамы — до 8192 px по ширине (иначе при увеличении картинка мутная); слабые телефоны WebGL уменьшит сам
+window.uploadPanorama = file => window.uploadImage(file, { max: 8192, q: .88 });
 /* ---------------------------------------------------------- */
 
 (async () => {

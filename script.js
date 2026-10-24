@@ -13,7 +13,17 @@ const $ = s => document.querySelector(s),
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const brg = (a, b) => Math.atan2(b.x - a.x, -(b.y - a.y)) * 180 / Math.PI;
 
-const blank = () => ({ name: '', bg: null, cor: [], rooms: [], pois: [], panos: [] });
+const floor = (name, o = {}) => ({ id: 'f' + uid(), name, bg: null, bgo: .7, cor: [], rooms: [], pois: [], panos: [], ...o });
+const blank = () => ({ name: '', floors: [floor('Этаж 1')] });
+
+// старые карты (один этаж без floors) переводим в новый формат
+function migrate(d) {
+  if (!d.floors) {
+    d.floors = [floor('Этаж 1', { id: 'f1', bg: d.bg || null, cor: d.cor || [], rooms: d.rooms || [], pois: d.pois || [], panos: d.panos || [] })];
+    delete d.bg; delete d.cor; delete d.rooms; delete d.pois; delete d.panos;
+  }
+  return d;
+}
 
 function load() {
   try { return JSON.parse(localStorage.getItem(KEY)); }
@@ -26,7 +36,8 @@ let S = blank(),
     sh = null,
     route = null,
     unlocked = false,
-    WS, RS, dr = null, pt = null;
+    WS, RS, dr = null, pt = null, dg = null;
+let F = S.floors[0], fi = 0; // F — активный этаж
 
 function save() { if (window.Core && Core.onSave) Core.onSave(S); }
 
@@ -38,14 +49,14 @@ function toast(t) {
   toast.t = setTimeout(() => e.style.display = 'none', 2600);
 }
 
-const P = id => S.pois.find(p => p.id == id),
-      N = id => S.panos.find(p => p.id == id),
-      R_ = id => S.rooms.find(r => r.id == id);
+const P = id => F.pois.find(p => p.id == id),
+      N = id => F.panos.find(p => p.id == id),
+      R_ = id => F.rooms.find(r => r.id == id);
 
 function mk() {
-  WS = new Set(S.cor);
+  WS = new Set(F.cor);
   RS = new Set();
-  S.rooms.forEach(r => {
+  F.rooms.forEach(r => {
     for (let i = 0; i < r.w; i++)
       for (let j = 0; j < r.h; j++) {
         const k = (r.x + i) + ',' + (r.y + j);
@@ -83,11 +94,11 @@ function plan() {
   const svg = $('#plan');
   let h = '', w = '', g = '';
   
-  if (S.bg) h += `<image href="${S.bg}" width="28" height="18" preserveAspectRatio="xMidYMid slice" opacity=".45"/>`;
+  if (F.bg) h += `<image href="${F.bg}" width="28" height="18" preserveAspectRatio="xMidYMid meet" opacity="${F.bgo ?? .7}"/>`;
   
   WS.forEach(k => {
     const [x, y] = k.split(',').map(Number);
-    h += `<rect x="${x}" y="${y}" width="1.02" height="1.02" fill="var(--${RS.has(k) ? 'room' : 'cor'})"/>`;
+    h += `<rect x="${x}" y="${y}" width="1.02" height="1.02" fill="var(--${RS.has(k) ? 'room' : 'cor'})"${F.bg ? ' fill-opacity=".55"' : ''}/>`;
     if (!WS.has(x + ',' + (y - 1))) w += `M${x} ${y}h1`;
     if (!WS.has(x + ',' + (y + 1))) w += `M${x} ${y + 1}h1`;
     if (!WS.has((x - 1) + ',' + y)) w += `M${x} ${y}v1`;
@@ -102,7 +113,7 @@ function plan() {
   
   h += `<path d="${w}" stroke="var(--wall)" stroke-width=".16" stroke-linecap="square" fill="none"/>`;
   
-  S.rooms.forEach(r => h += `<text x="${r.x + r.w / 2}" y="${r.y + .75}" class="lbl" style="font-size:.5px;fill:var(--mut);stroke:none">${esc(r.name)}</text>`);
+  F.rooms.forEach(r => h += `<text x="${r.x + r.w / 2}" y="${r.y + .75}" class="lbl" style="font-size:.5px;fill:var(--mut);stroke:none">${esc(r.name)}</text>`);
   
   if (dr) {
     const x = Math.min(dr.x0, dr.x1), y = Math.min(dr.y0, dr.y1);
@@ -111,18 +122,49 @@ function plan() {
   
   if (route && route.path) h += `<polyline class="route" points="${route.path.map(p => (p[0] + .5) + ',' + (p[1] + .5)).join(' ')}"/>`;
   
-  S.panos.forEach(n => h += `<g transform="translate(${n.x + .5} ${n.y + .5})"><circle r=".32" fill="var(--card)" stroke="var(--red)" stroke-width=".1"/><text y=".14" font-size=".36" text-anchor="middle">📷</text></g>`);
+  F.panos.forEach(n => h += `<g transform="translate(${n.x + .5} ${n.y + .5})">${dg && dg.moved && dg.it === n ? '<circle r=".6" fill="#e2231a33"/>' : ''}<circle r=".32" fill="var(--card)" stroke="var(--red)" stroke-width=".1"/><text y=".14" font-size=".36" text-anchor="middle">📷</text></g>`);
   
-  S.pois.forEach(p => {
-    const on = sh && sh.id == p.id;
+  F.pois.forEach(p => {
+    const on = (sh && sh.id == p.id) || (dg && dg.moved && dg.it === p);
     h += `<g transform="translate(${p.x + .5} ${p.y + .5})">${on ? '<circle r=".62" fill="#e2231a33"/>' : ''}<circle r=".42" fill="var(--red)" stroke="#fff" stroke-width=".07"/><text y=".16" font-size=".46" text-anchor="middle">${CATS[p.cat][0]}</text><text y="1" class="lbl">${esc(p.name)}</text></g>`;
   });
   
+  if (mode == 'o' && !F.bg && !WS.size) h += `<text x="14" y="9" class="lbl" style="font-size:.6px;fill:var(--mut);stroke:none">Загрузите готовый план (⚙ Карта) или нарисуйте залы и коридоры</text>`;
   svg.innerHTML = h;
+  floorsBar();
   svg.style.touchAction = mode == 'o' && ['room', 'cor', 'era'].includes(tool) ? 'none' : 'pan-y';
   $('#mname').textContent = S.name;
-  $('#chips').innerHTML = S.pois.map(p => `<button data-c="${p.id}">${CATS[p.cat][0]} ${esc(p.name)}</button>`).join('');
+  $('#chips').innerHTML = F.pois.map(p => `<button data-c="${p.id}">${CATS[p.cat][0]} ${esc(p.name)}</button>`).join('');
 }
+
+function floorsBar() {
+  const el = $('#floors');
+  el.hidden = S.floors.length < 2 && mode != 'o';
+  el.innerHTML = S.floors.map((f, i) => `<button data-fl="${i}" class="${i == fi ? 'on' : ''}">${esc(f.name)}</button>`).join('') +
+    (mode == 'o' ? '<button data-fl="add" class="add">＋ Этаж</button>' : '');
+}
+
+function goFloor(i) {
+  if (i == fi || !S.floors[i]) return;
+  fi = i; F = S.floors[i];
+  if (!(sh && sh.t == 'menu')) sh = null;
+  route = null; dr = null; dg = null;
+  plan(); sheet();
+}
+
+function addFloor() {
+  const f = floor('Этаж ' + (S.floors.length + 1));
+  S.floors.push(f); fi = S.floors.length - 1; F = f;
+  route = null; sh = { t: 'menu' }; tool = 'menu';
+  save(); tools(); plan(); sheet();
+  toast('Этаж добавлен — загрузите план или нарисуйте залы');
+}
+
+$('#floors').onclick = e => {
+  const b = e.target.closest('[data-fl]');
+  if (!b) return;
+  if (b.dataset.fl == 'add') addFloor(); else goFloor(+b.dataset.fl);
+};
 
 function tools() {
   $('#tools').innerHTML = [['sel', '☝ Выбор'], ['room', '▭ Зал'], ['cor', '▬ Коридор'], ['era', '⌫ Ластик'], ['poi', '📍 Точка'], ['pano', '📷 Панорама'], ['menu', '⚙ Карта']]
@@ -131,6 +173,12 @@ function tools() {
 }
 
 const svg = $('#plan');
+
+// можно ли поставить точку в клетку: на проходимую (если залы/коридоры нарисованы) или куда угодно поверх готового плана
+const canPut = (x, y, it) => {
+  const free = !WS.size && !!F.bg;
+  return (free || WS.has(x + ',' + y)) && !F.pois.concat(F.panos).some(o => o !== it && o.x == x && o.y == y);
+};
 
 function cell(e) {
   const r = svg.getBoundingClientRect();
@@ -142,10 +190,10 @@ function cell(e) {
 
 function paint(x, y) {
   const k = x + ',' + y;
-  if (tool == 'cor' && !WS.has(k)) S.cor.push(k);
+  if (tool == 'cor' && !WS.has(k)) F.cor.push(k);
   if (tool == 'era') {
-    S.cor = S.cor.filter(c => c != k);
-    S.rooms = S.rooms.filter(r => !(x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h));
+    F.cor = F.cor.filter(c => c != k);
+    F.rooms = F.rooms.filter(r => !(x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h));
   }
   plan();
 }
@@ -154,6 +202,11 @@ svg.onpointerdown = e => {
   const [x, y] = cell(e);
   svg.setPointerCapture(e.pointerId);
   pt = { x, y, lx: x, ly: y, m: false };
+  dg = null;
+  if (mode == 'o' && ['sel', 'poi', 'pano'].includes(tool)) {
+    const it = F.pois.find(p => p.x == x && p.y == y) || F.panos.find(p => p.x == x && p.y == y);
+    if (it) dg = { it, moved: false };
+  }
   if (mode == 'o') {
     if (tool == 'room') dr = { x0: x, y0: y, x1: x, y1: y };
     if (tool == 'cor' || tool == 'era') paint(x, y);
@@ -165,6 +218,10 @@ svg.onpointermove = e => {
   const [x, y] = cell(e);
   if (x == pt.lx && y == pt.ly) return;
   pt.lx = x; pt.ly = y; pt.m = true;
+  if (dg) { // тащим точку/панораму
+    if (canPut(x, y, dg.it)) { dg.it.x = x; dg.it.y = y; dg.moved = true; plan(); }
+    return;
+  }
   if (dr) { dr.x1 = x; dr.y1 = y; plan(); }
   else if (mode == 'o' && (tool == 'cor' || tool == 'era')) paint(x, y);
 };
@@ -172,10 +229,14 @@ svg.onpointermove = e => {
 svg.onpointerup = e => {
   if (!pt) return;
   const { x, y } = pt;
+  if (dg) {
+    const d = dg; dg = null;
+    if (d.moved) { pt = null; save(); plan(); return; }
+  }
   if (dr) {
     const r = { id: 'r' + uid(), x: Math.min(dr.x0, dr.x1), y: Math.min(dr.y0, dr.y1), w: Math.abs(dr.x1 - dr.x0) + 1, h: Math.abs(dr.y1 - dr.y0) + 1, name: 'Новый зал' };
     dr = null;
-    S.rooms.push(r);
+    F.rooms.push(r);
     save();
     sh = { t: 'er', id: r.id };
     plan();
@@ -186,23 +247,27 @@ svg.onpointerup = e => {
   pt = null;
 };
 
+svg.onpointercancel = () => { if (dg && dg.moved) save(); dg = null; pt = null; plan(); };
+// на телефоне не даём странице прокручиваться, пока тащим точку
+svg.addEventListener('touchmove', e => { if (dg) e.preventDefault(); }, { passive: false });
+
 function tap(x, y) {
-  const poi = S.pois.find(p => p.x == x && p.y == y),
-        pn = S.panos.find(p => p.x == x && p.y == y),
+  const poi = F.pois.find(p => p.x == x && p.y == y),
+        pn = F.panos.find(p => p.x == x && p.y == y),
         o = mode == 'o';
         
   if (poi) { sh = { t: o ? 'ep' : 'pv', id: poi.id }; }
   else if (pn) { if (o && tool != 'sel' || o) { sh = { t: 'en', id: pn.id }; } else { openPano(pn.id); } }
-  else if (o && tool == 'poi' && WS.has(x + ',' + y)) {
+  else if (o && tool == 'poi' && canPut(x, y)) {
     const p = { id: 'p' + uid(), x, y, name: 'Новая точка', cat: 'other', desc: '' };
-    S.pois.push(p); save(); sh = { t: 'ep', id: p.id };
+    F.pois.push(p); save(); sh = { t: 'ep', id: p.id };
   }
-  else if (o && tool == 'pano' && WS.has(x + ',' + y)) {
+  else if (o && tool == 'pano' && canPut(x, y)) {
     const p = { id: 'n' + uid(), x, y, name: 'Панорама', demo: 'Панорама', rot: 0, hs: [] };
-    S.panos.push(p); save(); sh = { t: 'en', id: p.id };
+    F.panos.push(p); save(); sh = { t: 'en', id: p.id };
   }
   else if (o && tool == 'sel') {
-    const r = S.rooms.find(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+    const r = F.rooms.find(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
     sh = r ? { t: 'er', id: r.id } : null;
   }
   else sh = null;
@@ -214,7 +279,7 @@ function tap(x, y) {
 /* ---------- панель ---------- */
 const nearPano = p => {
   let b = null, d = 6;
-  S.panos.forEach(n => {
+  F.panos.forEach(n => {
     const k = Math.hypot(n.x - p.x, n.y - p.y);
     if (k <= d) { d = k; b = n; }
   });
@@ -229,7 +294,7 @@ function recalc() {
   if (route.path) {
     const seen = new Set();
     route.path.forEach((c, i) => {
-      S.panos.forEach(n => {
+      F.panos.forEach(n => {
         if (!seen.has(n.id) && Math.hypot(n.x - c[0], n.y - c[1]) <= 2.5) {
           seen.add(n.id);
           route.tour.push(n.id);
@@ -239,7 +304,7 @@ function recalc() {
   }
 }
 
-const opts = (sel) => S.pois.map(p => `<option value="${p.id}" ${p.id == sel ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+const opts = (sel) => F.pois.map(p => `<option value="${p.id}" ${p.id == sel ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
 
 const head = (ic, t, s) => `<div class="grab"></div><div class="row"><span class="ic">${ic}</span><div><h3>${esc(t)}</h3><small>${s}</small></div><button class="x" data-a="x">✕</button></div>`;
 
@@ -271,7 +336,15 @@ function sheet() {
     h = head('🧭', 'Маршрут', 'по плану здания') + `<label>Откуда</label><select data-r="from">${opts(r.from)}</select><label>Куда</label><select data-r="to">${opts(r.to)}</select>` + (r.path ? `<div class="stat"><span>${m} м<small>путь</small></span><span>${Math.max(1, Math.round(m / 80))} мин<small>пешком</small></span><span>${r.tour.length}<small>панорам</small></span></div><div class="btns"><button class="pri" data-a="tour">Пройти по панорамам</button></div>` : `<p><small>${r.from == r.to ? 'Выберите разные точки.' : 'Маршрут не найден: проверьте, что коридоры соединены.'}</small></p>`);
   }
   if (sh.t == 'menu') {
-    h = head('⚙', 'Карта', 'настройки организатора') + `<label>Название карты</label><input type="text" data-f="name" value="${esc(S.name)}"><label>Подложка: готовый план (картинка)</label><input type="file" accept="image/*" data-up="bg"><label>Данные карты (JSON) — копируйте или вставьте для переноса</label><textarea id="json" style="min-height:90px">${esc(JSON.stringify({ ...S, bg: null, panos: S.panos.map(p => ({ ...p, src: p.src ? '…' : undefined })) }))}</textarea><div class="btns"><button data-a="imp">Применить JSON</button><button data-a="nobg">Убрать подложку</button></div><p><small>Изменения сохраняются автоматически на устройстве.</small></p>`;
+    const full = { name: S.name, floors: S.floors.map(f => ({ ...f, bg: f.bg ? '…' : null, panos: f.panos.map(p => ({ ...p, src: p.src ? '…' : undefined })) })) };
+    h = head('⚙', 'Карта', 'настройки организатора') +
+      `<label>Название карты</label><input type="text" data-f="name" value="${esc(S.name)}">` +
+      `<label>Этаж: название</label><input type="text" data-ff="name" value="${esc(F.name)}">` +
+      `<label>План этажа: готовое изображение (JPG, PNG)</label><input type="file" accept="image/*" data-up="bg">` +
+      (F.bg ? `<label>Прозрачность плана: ${Math.round((F.bgo ?? .7) * 100)}%</label><input type="range" min="10" max="100" value="${Math.round((F.bgo ?? .7) * 100)}" data-ff="bgo" style="width:100%">` : '') +
+      `<div class="btns">${F.bg ? '<button data-a="nobg">Убрать план</button>' : ''}${S.floors.length > 1 ? '<button class="del" data-a="delf">Удалить этаж</button>' : ''}</div>` +
+      `<label>Данные карты (JSON) — копируйте или вставьте для переноса</label><textarea id="json" style="min-height:90px">${esc(JSON.stringify(full))}</textarea>` +
+      `<div class="btns"><button data-a="imp">Применить JSON</button></div><p><small>Изменения сохраняются автоматически на устройстве.</small></p>`;
   }
   
   if (h) el.innerHTML = h;
@@ -281,6 +354,13 @@ const cur = () => sh.t == 'ep' ? P(sh.id) : sh.t == 'en' ? N(sh.id) : sh.t == 'e
 
 $('#sheet').oninput = e => {
   const t = e.target, o = cur();
+  if (t.dataset.ff) {
+    const range = t.type == 'range';
+    F[t.dataset.ff] = range ? +t.value / 100 : t.value;
+    if (range) t.previousElementSibling.textContent = 'Прозрачность плана: ' + t.value + '%';
+    save(); plan();
+    return;
+  }
   if (o && t.dataset.f) {
     o[t.dataset.f] = t.type == 'range' ? +t.value : t.value;
     if (t.type == 'range') t.previousElementSibling.textContent = 'Поворот относительно плана: ' + t.value + '°';
@@ -299,10 +379,11 @@ $('#sheet').onchange = async e => {
     const file = t.files[0];
     
     if (t.dataset.up == 'bg') {
-        img(file, 1600, src => { 
-            S.bg = src; 
-            save(); plan(); sheet(); toast('Подложка применена');
-        });
+        toast('Загружаем план…');
+        let url = null;
+        try { url = window.uploadImage ? await window.uploadImage(file, { max: 2400, q: .9, prefix: 'plans/' }) : null; } catch {}
+        if (url) { F.bg = url; save(); plan(); sheet(); toast('План загружен'); }
+        else img(file, 1600, src => { F.bg = src; save(); plan(); sheet(); toast('План применён (сохранён на этом устройстве)'); });
     } else {
         toast('Загружаем панораму в облако...');
         try {
@@ -313,9 +394,9 @@ $('#sheet').onchange = async e => {
                 n.src = publicUrl; 
                 n.demo = null; 
                 delete TX[n.id];
-                save(); plan(); sheet(); 
+                save(); plan(); sheet(); toast('Панорама загружена'); 
             } else {
-                toast('Не удалось получить ссылку');
+                /* ошибка уже показана в uploadPanorama */
             }
         } catch (err) {
             toast('Ошибка при загрузке');
@@ -334,7 +415,8 @@ function img(f, mx, cb) {
             c = document.createElement('canvas');
       c.width = pano ? 2048 : i.width * k;
       c.height = pano ? 1024 : i.height * k;
-      c.getContext('2d').drawImage(i, 0, 0, c.width, c.height);
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(i, 0, 0, c.width, c.height);
       cb(c.toDataURL('image/jpeg', .82));
     };
     i.src = fr.result;
@@ -348,23 +430,42 @@ $('#sheet').onclick = e => {
   const a = b.dataset.a;
   
   if (a == 'x') { sh = null; }
-  if (a == 'to') { route = { from: (S.pois.find(p => p.id != sh.id) || {}).id, to: sh.id }; sh = { t: 'rt' }; }
+  if (a == 'to') { route = { from: (F.pois.find(p => p.id != sh.id) || {}).id, to: sh.id }; sh = { t: 'rt' }; }
   if (a == 'pano') { openPano(b.dataset.id, undefined); return; }
   if (a == 'tour') { if (!route.tour.length) return toast('Вдоль маршрута нет панорам'); openPano(route.tour[0], route.tour); return; }
-  if (a == 'delp') { S.pois = S.pois.filter(p => p.id != sh.id); S.panos.forEach(n => n.hs = n.hs.filter(h => h.poi != sh.id)); sh = null; }
-  if (a == 'deln') { S.panos = S.panos.filter(p => p.id != sh.id); sh = null; }
-  if (a == 'delr') { S.rooms = S.rooms.filter(r => r.id != sh.id); sh = null; }
-  if (a == 'nobg') { S.bg = null; }
+  if (a == 'delp') { F.pois = F.pois.filter(p => p.id != sh.id); F.panos.forEach(n => n.hs = n.hs.filter(h => h.poi != sh.id)); sh = null; }
+  if (a == 'deln') { F.panos = F.panos.filter(p => p.id != sh.id); sh = null; }
+  if (a == 'delr') { F.rooms = F.rooms.filter(r => r.id != sh.id); sh = null; }
+  if (a == 'nobg') { F.bg = null; }
   if (a == 'pin') { localStorage.removeItem(PK); unlocked = false; toast('PIN сброшен: задайте новый при следующем входе'); setMode('v'); }
   if (a == 'imp') {
     try {
       const j = JSON.parse($('#json').value);
-      j.panos = j.panos.map(p => ({ ...p, src: (N(p.id) || {}).src }));
-      S = { ...S, ...j };
+      if (j.floors) {
+        // картинки в JSON заменены на «…» — возвращаем из текущих данных
+        const old = {}; S.floors.forEach(f => f.panos.forEach(p => old[p.id] = p.src));
+        j.floors.forEach(f => {
+          const o = S.floors.find(x => x.id == f.id);
+          if (f.bg == '…') f.bg = o ? o.bg : null;
+          (f.panos || []).forEach(p => { p.src = old[p.id]; });
+        });
+        S = { ...S, ...j };
+        S.floors.forEach(f => Object.assign(f, { cor: f.cor || [], rooms: f.rooms || [], pois: f.pois || [], panos: f.panos || [] }));
+      } else { // старый формат — применяем к текущему этажу
+        const keep = {}; F.panos.forEach(p => keep[p.id] = p.src);
+        (j.panos || []).forEach(p => { p.src = keep[p.id]; });
+        Object.assign(F, { cor: j.cor || [], rooms: j.rooms || [], pois: j.pois || [], panos: j.panos || [] });
+        if (j.name) S.name = j.name;
+      }
+      fi = Math.min(fi, S.floors.length - 1); F = S.floors[fi];
       toast('Карта обновлена');
     } catch { toast('Не удалось прочитать JSON'); }
   }
-  
+  if (a == 'delf' && S.floors.length > 1 && confirm('Удалить этаж «' + F.name + '» со всеми точками и панорамами?')) {
+    S.floors.splice(fi, 1);
+    fi = Math.min(fi, S.floors.length - 1); F = S.floors[fi];
+    sh = null; route = null; tool = 'sel'; tools();
+  }
   save(); plan(); sheet();
 };
 
@@ -374,7 +475,7 @@ $('#chips').onclick = e => {
 };
 
 $('#rbtn').onclick = () => {
-  route = route || { from: S.pois[0]?.id, to: S.pois[1]?.id };
+  route = route || { from: F.pois[0]?.id, to: F.pois[1]?.id };
   sh = { t: 'rt' }; plan(); sheet();
 };
 
@@ -482,7 +583,7 @@ function gen(name) {
 
 function tex(p) {
   if (TX[p.id]) return TX[p.id];
-  const t = p.src ? new THREE.TextureLoader().setCrossOrigin('anonymous').load(p.src, undefined, undefined, () => toast('Не удалось загрузить панораму (проверьте интернет и доступ к хранилищу)')) : new THREE.CanvasTexture(gen(p.demo || p.name));
+  const t = p.src ? new THREE.TextureLoader().setCrossOrigin('anonymous').load(p.src, undefined, undefined, () => fetch(p.src, { method: 'HEAD' }).then(r => { console.error('pano load failed', p.src, r.status); toast(r.ok ? 'Панорама скачивается, но не читается как изображение' : 'Панорама недоступна: HTTP ' + r.status + ' (бакет не публичный или файл удалён)'); }).catch(() => toast('Панорама не загрузилась: нет сети или заблокировано CORS'))) : new THREE.CanvasTexture(gen(p.demo || p.name));
   t.wrapS = THREE.RepeatWrapping; t.offset.x = -.25;
   t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
   return TX[p.id] = t;
@@ -523,7 +624,7 @@ function build() {
     const o = P(s.poi);
     if (o) V.hs.push({ yaw: s.yaw, pitch: s.pitch, html: `<button class="hs" data-i="${i}"><i>${CATS[o.cat][0]}</i>${esc(o.name)}</button>` });
   });
-  S.panos.forEach(q => {
+  F.panos.forEach(q => {
     if (q.id != p.id && Math.hypot(q.x - p.x, q.y - p.y) <= 11) V.hs.push({ yaw: brg(p, q) + p.rot, pitch: -16, html: `<button class="hs go" data-g="${q.id}"><i>↑</i>${esc(q.name)}</button>` });
   });
   $('#hsl').innerHTML = V.hs.map(x => x.html).join('');
@@ -613,7 +714,7 @@ $('#pv').onclick = e => {
 /* ---------- вход в карту (вызывается из app.js) ---------- */
 window.Core = {
   open(d, r) {
-    S = d; TX = {}; route = null; sh = null;
+    S = migrate(d); fi = 0; F = S.floors[0]; TX = {}; route = null; sh = null;
     if (V) { $('#pv').hidden = true; V = null; }
     unlocked = r != 'view';
     setMode('v');
