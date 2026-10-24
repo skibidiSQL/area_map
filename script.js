@@ -1,4 +1,4 @@
-const GW = 28, GH = 18, KEY = 'tk-spacemap-v1', PK = 'tk-spacemap-pin';
+const GW = 28, GH = 18, KEY = 'tk-spacemap-v1';
 const CATS = {
   stand: ['🏷', 'Стенд'],
   hall: ['🎤', 'Зал'],
@@ -506,7 +506,6 @@ $('#sheet').onclick = e => {
   if (a == 'delr') { F.rooms = F.rooms.filter(r => r.id != sh.id); sh = null; }
   if (a == 'dlfloor') { downloadFloor(); return; }
   if (a == 'nobg') { F.bg = null; }
-  if (a == 'pin') { localStorage.removeItem(PK); unlocked = false; toast('PIN сброшен: задайте новый при следующем входе'); setMode('v'); }
   if (a == 'imp') {
     try {
       const j = JSON.parse($('#json').value);
@@ -558,12 +557,6 @@ $('#tools').onclick = e => {
 };
 
 /* ---------- доступ ---------- */
-async function hash(s) {
-  try {
-    const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('tk' + s));
-    return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
-  } catch { return btoa(s); }
-}
 
 function setMode(m) {
   mode = m;
@@ -577,29 +570,7 @@ function setMode(m) {
 $('#mv').onclick = () => setMode('v');
 
 $('#mo').onclick = () => {
-  if (unlocked) return setMode('o');
-  let has = null;
-  try { has = localStorage.getItem(PK); } catch {}
-  
-  const md = $('#modal'), bx = md.firstElementChild;
-  md.hidden = false;
-  bx.innerHTML = `<h3>${has ? 'Вход для организатора' : 'Задайте PIN организатора'}</h3><p><small>${has ? 'Введите PIN, чтобы редактировать карту.' : 'Минимум 4 символа. Он защитит редактор от посетителей.'}</small></p><input type="password" id="pin" autocomplete="off"><div class="btns"><button class="pri" id="pok">${has ? 'Войти' : 'Сохранить'}</button><button id="pcn">Отмена</button></div>`;
-  
-  const f = $('#pin');
-  f.focus();
-  $('#pcn').onclick = () => md.hidden = true;
-  
-  const go = async () => {
-    const v = f.value;
-    if (v.length < 4) return toast('PIN короче 4 символов');
-    const hh = await hash(v);
-    if (!has) { try { localStorage.setItem(PK, hh); } catch {} }
-    else if (hh != has) return toast('Неверный PIN');
-    unlocked = true; md.hidden = true; setMode('o');
-  };
-  
-  $('#pok').onclick = go;
-  f.onkeydown = e => { if (e.key == 'Enter') go(); };
+  if (unlocked) setMode('o');
 };
 
 /* ---------- панорамы ---------- */
