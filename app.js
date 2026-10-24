@@ -1,4 +1,3 @@
-/* Карта пространства: бессерверная PWA-версия (Supabase + IndexedDB). */
 (() => {
 const SUPABASE_URL = 'https://rlzgzbviuvkuzhcfyzcg.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_STl70_TA-R8cRWX9qsw_DA_GxuGw0WZ';
