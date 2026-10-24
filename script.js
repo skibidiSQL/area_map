@@ -482,9 +482,21 @@ function gen(name) {
 
 function tex(p) {
   if (TX[p.id]) return TX[p.id];
-  const t = p.src ? new THREE.TextureLoader().load(p.src) : new THREE.CanvasTexture(gen(p.demo || p.name));
-  t.wrapS = THREE.RepeatWrapping; t.offset.x = -.25;
-  t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
+  
+  let t;
+  if (p.src) {
+    const loader = new THREE.TextureLoader();
+    loader.setCrossOrigin('anonymous');
+    t = loader.load(p.src);
+  } else {
+    t = new THREE.CanvasTexture(gen(p.demo || p.name));
+  }
+  
+  t.wrapS = THREE.RepeatWrapping; 
+  t.offset.x = -.25;
+  t.minFilter = THREE.LinearFilter; 
+  t.generateMipmaps = false;
+  
   return TX[p.id] = t;
 }
 
