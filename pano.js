@@ -1,6 +1,8 @@
+/* Панорамы: подготовка файла (пропорции, GPano, качество) и сшивка кадров камеры в сферу. */
 const Pano = (() => {
-  const RAD = Math.PI / 180, MAXA = 16e6; 
+  const RAD = Math.PI / 180, MAXA = 16e6; // 16 Мпикс — безопасный предел canvas на iOS
 
+  // Photo Sphere / Street View кладут в JPEG метаданные GPano: где в полной сфере лежит снимок
   async function gpano(file) {
     try {
       const t = new TextDecoder('latin1').decode(new Uint8Array(await file.slice(0, 262144).arrayBuffer()));
@@ -13,6 +15,7 @@ const Pano = (() => {
   const bmp = f => window.createImageBitmap ? createImageBitmap(f).catch(() => viaImg(f)) : viaImg(f);
   const dims = o => [o.naturalWidth || o.width, o.naturalHeight || o.height];
 
+  // ступенчатое уменьшение вдвое: без алиасинга и «лесенки» на линиях
   function down(src, sw, sh, tw, th) {
     let c = src, w = sw, h = sh;
     while (w / 2 >= tw && h / 2 >= th) {
@@ -22,6 +25,7 @@ const Pano = (() => {
     return [c, w, h];
   }
 
+  // Приводит файл к equirectangular 2:1 в безопасном размере. Возвращает { blob, w, h } или null.
   async function prepare(file) {
     let src; try { src = await bmp(file); } catch { toast('Не удалось открыть изображение'); return null; }
     const [iw, ih] = dims(src), gp = await gpano(file), r = iw / ih, notes = [];
@@ -50,13 +54,20 @@ const Pano = (() => {
     return { blob, w: W, h: H, notes };
   }
 
+  /* ---- геометрия камеры ---- */
+  // (E,N,U) → система просмотрщика: x вправо/на восток, y вверх, −z — на север
   const conv = v => [v[0], v[2], -v[1]];
+  // Углы deviceorientation (градусы, W3C: R = Rz(α)·Rx(β)·Ry(γ)) → оси камеры: вперёд, вправо, вверх
   function basis(alpha, beta, gamma) {
     const a = alpha * RAD, b = beta * RAD, g = gamma * RAD, ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b), cg = Math.cos(g), sg = Math.sin(g);
     const R = [[ca * cg - sa * sb * sg, -sa * cb, ca * sg + sa * sb * cg], [sa * cg + ca * sb * sg, ca * cb, sa * sg - ca * sb * cg], [-cb * sg, sb, cb * cg]];
     return { f: conv([-R[0][2], -R[1][2], -R[2][2]]), r: conv([R[0][0], R[1][0], R[2][0]]), u: conv([R[0][1], R[1][1], R[2][1]]) };
   }
   const rotY = (v, a) => [v[0] * Math.cos(a) + v[2] * Math.sin(a), v[1], v[2] * Math.cos(a) - v[0] * Math.sin(a)];
+
+  /* Сшивка: для каждого пикселя сферы берём кадры, в которые он попадает, и смешиваем с весом,
+     который падает к краям кадра (мягкие швы). Идём полосами — мало памяти на телефоне.
+     shots: [{ w, h, data(RGBA), f, r, u }] в системе, где yaw 0 = центр картинки. Возвращает RGBA W×W/2. */
   async function stitch(shots, W, fovLong, prog) {
     const H = W >> 1, out = new Uint8ClampedArray(W * H * 4), T = Math.tan(fovLong * RAD / 2);
     const S = shots.map(s => { const m = Math.max(s.w, s.h), tx = T * s.w / m, ty = T * s.h / m;

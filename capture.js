@@ -1,3 +1,5 @@
+/* Съёмка панорамы камерой телефона. Датчики ориентации ведут пользователя точкой:
+   совместил красную точку с белым кружком → снимок. Потом кадры сшиваются (Pano.stitch). */
 const Capture = (() => {
   const RAD = Math.PI / 180, el = () => $('#cap');
   const dir = (y, p) => [Math.sin(y) * Math.cos(p), Math.sin(p), -Math.cos(y) * Math.cos(p)];
@@ -38,6 +40,7 @@ const Capture = (() => {
     S.mode = $('#cm').value; S.tg = plan(S.mode);
     const err = m => { const e = $('#ce'); e.hidden = false; e.textContent = m; };
     if (!navigator.mediaDevices || !window.DeviceOrientationEvent) return err('Камера или датчики недоступны в этом браузере. Загрузите готовую панораму файлом.');
+    // iOS: разрешение на датчики можно запросить только прямо в обработчике нажатия — поэтому первым делом
     try { if (DeviceOrientationEvent.requestPermission && (await DeviceOrientationEvent.requestPermission()) != 'granted') return err('Нужен доступ к датчикам движения (Safari → Настройки сайта).'); }
     catch { return err('Нет доступа к датчикам движения.'); }
     try { S.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1600 }, height: { ideal: 1200 } }, audio: false }); }
@@ -50,7 +53,7 @@ const Capture = (() => {
     S.t0 = performance.now(); S.raf = requestAnimationFrame(tick);
   }
 
-  //оси камеры из датчиков, со сглаживанием дрожания
+  // оси камеры из датчиков, со сглаживанием дрожания
   function onOri(e) {
     if (!S || e.alpha == null || e.beta == null) return;
     const b = Pano.basis(e.alpha, e.beta, e.gamma || 0);
@@ -80,24 +83,26 @@ const Capture = (() => {
     $('#cs').disabled = !near; $('#ck').hidden = !polar; $('#ct').textContent = (S.i + 1) + ' / ' + S.tg.length + ' · ' + t.l;
     if (ok) { if (!S.hold) S.hold = now; if (now - S.hold > 600) { S.hold = 0; return shoot(); } } else S.hold = 0;
 
-    //уже снятые направления
+    // уже снятые направления
     g.fillStyle = 'rgba(80,220,120,.9)';
     for (const s of S.shots) { const z = dot(s.f, f); if (z > .1) { const x = W / 2 + fs * dot(s.f, r) / z, y = H / 2 - fs * dot(s.f, u) / z; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); } }
-    //цель
+    // цель
     const zc = dot(abs, f), xc = dot(abs, r), yc = dot(abs, u), col = near ? '#4be07a' : '#e2231a';
     const tx = zc > .1 ? W / 2 + fs * xc / zc : -1e4, ty = zc > .1 ? H / 2 - fs * yc / zc : -1e4;
     g.lineWidth = 4;
     if (tx > 20 && tx < W - 20 && ty > 60 && ty < H - 120) {
       g.fillStyle = col; g.strokeStyle = '#fff'; g.beginPath(); g.arc(tx, ty, 13, 0, 7); g.fill(); g.stroke();
-    } else { 
+    } else { // цель за экраном — стрелка к краю
       const l = Math.hypot(xc, yc) || 1, vx = xc / l, vy = -yc / l, ex = W / 2 + vx * (W / 2 - 34), ey = H / 2 + vy * (H / 2 - 150), a = Math.atan2(vy, vx);
       g.save(); g.translate(ex, ey); g.rotate(a); g.fillStyle = col; g.strokeStyle = '#fff'; g.beginPath(); g.moveTo(18, 0); g.lineTo(-12, -14); g.lineTo(-12, 14); g.closePath(); g.fill(); g.stroke(); g.restore();
     }
+    // прицел в центре + прогресс удержания + горизонт
     g.strokeStyle = near ? '#4be07a' : '#fff'; g.beginPath(); g.arc(W / 2, H / 2, 26, 0, 7); g.stroke();
     g.lineWidth = 2; g.beginPath(); g.moveTo(W / 2 - 8, H / 2); g.lineTo(W / 2 + 8, H / 2); g.moveTo(W / 2, H / 2 - 8); g.lineTo(W / 2, H / 2 + 8); g.stroke();
     if (S.hold) { g.strokeStyle = '#4be07a'; g.lineWidth = 6; g.beginPath(); g.arc(W / 2, H / 2, 35, -Math.PI / 2, -Math.PI / 2 + Math.min(1, (now - S.hold) / 600) * 2 * Math.PI); g.stroke(); }
     if (!polar) { g.save(); g.translate(W / 2, H / 2); g.rotate(-roll * RAD); g.strokeStyle = Math.abs(roll) < 3 ? '#4be07a' : 'rgba(255,255,255,.7)'; g.lineWidth = 2; g.beginPath(); g.moveTo(-95, 0); g.lineTo(-45, 0); g.moveTo(45, 0); g.lineTo(95, 0); g.stroke(); g.restore(); }
 
+    // подсказка
     const cy = Math.atan2(f[0], -f[2]) / RAD - S.y0 / RAD, dy = wrap(t.y - cy), dp = t.p - Math.asin(Math.max(-1, Math.min(1, f[1]))) / RAD;
     let m;
     if (ang >= TOL) m = polar || Math.abs(dp) > Math.abs(dy) ? (dp > 0 ? 'Наклоните камеру выше ↑' : 'Наклоните камеру ниже ↓') : (dy > 0 ? 'Поверните камеру вправо →' : '← Поверните камеру влево');
@@ -117,6 +122,7 @@ const Capture = (() => {
     if (S.i >= S.tg.length) review();
   }
 
+  // кадры в системе, где yaw 0 — направление первого снимка (центр картинки)
   const rel = () => S.shots.map(s => ({ ...s, f: Pano.rotY(s.f, S.y0), r: Pano.rotY(s.r, S.y0), u: Pano.rotY(s.u, S.y0) }));
 
   async function review() {
@@ -143,12 +149,12 @@ const Capture = (() => {
       const blob = await new Promise(ok => c.toBlob(ok, 'image/jpeg', .9));
       toast('Загружаем панораму…');
       let url = window.uploadBlob ? await window.uploadBlob(blob) : null;
-      if (!url) { 
+      if (!url) { // облако недоступно (например, нет интернета на площадке) — сохраняем на устройстве
         const s = document.createElement('canvas'); s.width = 3072; s.height = 1536; s.getContext('2d').drawImage(c, 0, 0, 3072, 1536);
         url = s.toDataURL('image/jpeg', .8); toast('Облако недоступно — панорама сохранена на этом устройстве');
       }
       const n = N(S.id), id = S.id;
-      if (n) { n.src = url; n.demo = null; dropTex(id); save(); plan(); }
+      if (n) { pushState(); n.src = url; n.demo = null; dropTex(id); save(); plan(); }
       close(); if (n) openPano(id);
     } catch (e) { console.error(e); toast('Не удалось собрать панораму'); }
     finally { if (S) S.busy = false; }

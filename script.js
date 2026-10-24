@@ -14,9 +14,9 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const brg = (a, b) => Math.atan2(b.x - a.x, -(b.y - a.y)) * 180 / Math.PI;
 
 const floor = (name, o = {}) => ({ id: 'f' + uid(), name, bg: null, bgo: .7, cor: [], walls: [], rooms: [], pois: [], panos: [], ...o });
-
 const blank = () => ({ name: '', floors: [floor('Этаж 1')] });
 
+// старые карты (один этаж без floors) переводим в новый формат
 function migrate(d) {
   if (!d.floors) {
     d.floors = [floor('Этаж 1', { id: 'f1', bg: d.bg || null, cor: d.cor || [], walls: d.walls || [], rooms: d.rooms || [], pois: d.pois || [], panos: d.panos || [] })];
@@ -38,22 +38,11 @@ let S = blank(),
     unlocked = false,
     WS, RS, dr = null, pt = null, dg = null,
     undoStack = [];
-
-let F = S.floors[0], fi = 0; 
+let F = S.floors[0], fi = 0; // F — активный этаж
 
 function save() { if (window.Core && Core.onSave) Core.onSave(S); }
 
-const track = (k, t) => { if (mode == 'v' && window.Core && Core.onTrack) Core.onTrack(k, t); };
-let undoPlan = null;
-
-function toast(t) {
-  const e = $('#toast');
-  e.textContent = t;
-  e.style.display = 'block';
-  clearTimeout(toast.t);
-  toast.t = setTimeout(() => e.style.display = 'none', 2600);
-}
-
+/* ---------- отмена действий организатора (кнопка «↩ Назад» и Ctrl+Z) ---------- */
 function pushState() {
   if (mode !== 'o') return;
   const cur = JSON.stringify({ fi, S });
@@ -64,23 +53,35 @@ function pushState() {
 }
 
 function undo() {
-  if (mode !== 'o' || undoStack.length === 0) return;
+  if (mode !== 'o' || undoStack.length === 0) return toast('Нечего отменять');
   const prev = JSON.parse(undoStack.pop());
   S = prev.S;
   fi = prev.fi;
   if (fi >= S.floors.length) fi = Math.max(0, S.floors.length - 1);
   F = S.floors[fi];
   sh = null; route = null; dr = null; pt = null; dg = null;
-  save(); plan(); sheet();
+  save(); tools(); plan(); sheet();
   toast('Отменено');
 }
 
 window.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
+  if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ' && !/INPUT|TEXTAREA|SELECT/.test((e.target || {}).tagName || '')) {
     undo();
     e.preventDefault();
   }
 });
+
+
+// статистика: считаем только действия посетителя (app.js складывает события и отправляет в облако)
+const track = (k, t) => { if (mode == 'v' && window.Core && Core.onTrack) Core.onTrack(k, t); };
+
+function toast(t) {
+  const e = $('#toast');
+  e.textContent = t;
+  e.style.display = 'block';
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => e.style.display = 'none', 2600);
+}
 
 const P = id => F.pois.find(p => p.id == id),
       N = id => F.panos.find(p => p.id == id),
@@ -103,25 +104,16 @@ function bfs(a, b) {
   const q = [[a.x, a.y]],
         prev = { [a.x + ',' + a.y]: null },
         t = b.x + ',' + b.y;
-  
-  const walls = new Set(F.walls || []);
         
+  const walls = new Set(F.walls || []);
   for (let i = 0; i < q.length && !(t in prev); i++) {
     const [x, y] = q[i];
-    
-    const moves = [
-      [1, 0, `${x+1},${y},v`],
-      [-1, 0, `${x},${y},v`],
-      [0, 1, `${x},${y+1},h`],
-      [0, -1, `${x},${y},h`]
-    ];
-    
-    for (const [dx, dy, wall] of moves) {
-      const nx = x + dx, ny = y + dy;
-      const k = nx + ',' + ny;
+    // шаг + ребро, которое он пересекает: если на нём стена — не идём
+    for (const [dx, dy, wall] of [[1, 0, `${x + 1},${y},v`], [-1, 0, `${x},${y},v`], [0, 1, `${x},${y + 1},h`], [0, -1, `${x},${y},h`]]) {
+      const k = (x + dx) + ',' + (y + dy);
       if (WS.has(k) && !(k in prev) && !walls.has(wall)) {
         prev[k] = x + ',' + y;
-        q.push([nx, ny]);
+        q.push([x + dx, y + dy]);
       }
     }
   }
@@ -132,6 +124,7 @@ function bfs(a, b) {
   return p.reverse();
 }
 
+/* ---------- план ---------- */
 function plan() {
   mk();
   const svg = $('#plan');
@@ -156,17 +149,15 @@ function plan() {
   
   h += `<path d="${w}" stroke="var(--wall)" stroke-width=".16" stroke-linecap="square" fill="none"/>`;
   
-  if (F.walls) {
+  if (F.walls && F.walls.length) {
     let wp = '';
     F.walls.forEach(k => {
       const [x, y, d] = k.split(',');
       if (d == 'h') wp += `M${x} ${y}h1`;
       if (d == 'v') wp += `M${x} ${y}v1`;
     });
-    if (wp) {
-      h += `<path d="${wp}" stroke="#a09b95" stroke-width=".26" stroke-linecap="round" fill="none"/>`;
-      h += `<path d="${wp}" stroke="#ffffff" stroke-width=".16" stroke-linecap="round" fill="none"/>`;
-    }
+    h += `<path d="${wp}" stroke="#a09b95" stroke-width=".26" stroke-linecap="round" fill="none"/>`;
+    h += `<path d="${wp}" stroke="#ffffff" stroke-width=".16" stroke-linecap="round" fill="none"/>`;
   }
   
   F.rooms.forEach(r => h += `<text x="${r.x + r.w / 2}" y="${r.y + .75}" class="lbl" style="font-size:.5px;fill:var(--mut);stroke:none">${esc(r.name)}</text>`);
@@ -231,6 +222,7 @@ function tools() {
 
 const svg = $('#plan');
 
+// можно ли поставить точку в клетку: на проходимую (если залы/коридоры нарисованы) или куда угодно поверх готового плана
 const canPut = (x, y, it) => {
   const free = !WS.size && !!F.bg;
   return (free || WS.has(x + ',' + y)) && !F.pois.concat(F.panos).some(o => o !== it && o.x == x && o.y == y);
@@ -244,38 +236,30 @@ function cell(e) {
   ];
 }
 
+// ближайшая к курсору сторона клетки: стена хранится как ребро «x,y,h» (горизонтальное) или «x,y,v» (вертикальное)
 function edge(e) {
   const r = svg.getBoundingClientRect();
-  let rx = (e.clientX - r.left) / r.width * GW;
-  let ry = (e.clientY - r.top) / r.height * GH;
-  rx = Math.max(0, Math.min(GW, rx));
-  ry = Math.max(0, Math.min(GH, ry));
-  
+  let rx = (e.clientX - r.left) / r.width * GW, ry = (e.clientY - r.top) / r.height * GH;
+  rx = Math.max(0, Math.min(GW, rx)); ry = Math.max(0, Math.min(GH, ry));
   let x = Math.floor(rx), y = Math.floor(ry);
   if (x >= GW) x = GW - 1;
   if (y >= GH) y = GH - 1;
-  
-  const dx = rx - x, dy = ry - y;
-  const distL = dx, distR = 1 - dx, distT = dy, distB = 1 - dy;
-  const min = Math.min(distL, distR, distT, distB);
-
-  if (min == distT) return `${x},${y},h`;
-  if (min == distB) return `${x},${y+1},h`;
-  if (min == distL) return `${x},${y},v`;
-  return `${x+1},${y},v`;
+  const dx = rx - x, dy = ry - y, dL = dx, dR = 1 - dx, dT = dy, dB = 1 - dy, min = Math.min(dL, dR, dT, dB);
+  if (min == dT) return `${x},${y},h`;
+  if (min == dB) return `${x},${y + 1},h`;
+  if (min == dL) return `${x},${y},v`;
+  return `${x + 1},${y},v`;
 }
 
 function paint(x, y, ed) {
   const k = x + ',' + y;
-  if (tool == 'cor' && !WS.has(k)) { 
-    F.cor.push(k); 
-  }
-  if (tool == 'wall') { 
+  if (tool == 'cor' && !WS.has(k)) F.cor.push(k);
+  if (tool == 'wall') {
     if (!F.walls) F.walls = [];
     if (!F.walls.includes(ed)) F.walls.push(ed);
   }
   if (tool == 'era') {
-    if (F.cor) F.cor = F.cor.filter(c => c != k);
+    F.cor = F.cor.filter(c => c != k);
     if (F.walls) F.walls = F.walls.filter(w => w != ed);
     F.rooms = F.rooms.filter(r => !(x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h));
   }
@@ -284,8 +268,7 @@ function paint(x, y, ed) {
 
 svg.onpointerdown = e => {
   if (mode == 'o') pushState();
-  const [x, y] = cell(e);
-  const ed = edge(e);
+  const [x, y] = cell(e), ed = edge(e);
   svg.setPointerCapture(e.pointerId);
   pt = { x, y, lx: x, ly: y, le: ed, m: false };
   dg = null;
@@ -301,11 +284,10 @@ svg.onpointerdown = e => {
 
 svg.onpointermove = e => {
   if (!pt) return;
-  const [x, y] = cell(e);
-  const ed = edge(e);
+  const [x, y] = cell(e), ed = edge(e);
   if (x == pt.lx && y == pt.ly && ed == pt.le) return;
   pt.lx = x; pt.ly = y; pt.le = ed; pt.m = true;
-  if (dg) {
+  if (dg) { // тащим точку/панораму
     if (canPut(x, y, dg.it)) { dg.it.x = x; dg.it.y = y; dg.moved = true; plan(); }
     return;
   }
@@ -335,7 +317,7 @@ svg.onpointerup = e => {
 };
 
 svg.onpointercancel = () => { if (dg && dg.moved) save(); dg = null; pt = null; plan(); };
-
+// на телефоне не даём странице прокручиваться, пока тащим точку
 svg.addEventListener('touchmove', e => { if (dg) e.preventDefault(); }, { passive: false });
 
 function tap(x, y) {
@@ -363,6 +345,7 @@ function tap(x, y) {
   sheet();
 }
 
+/* ---------- панель ---------- */
 const nearPano = p => {
   let b = null, d = 6;
   F.panos.forEach(n => {
@@ -457,22 +440,23 @@ $('#sheet').oninput = e => {
   }
 };
 
+/* ---------- план этажа из JSON-файла ---------- */
 const okUrl = u => typeof u == 'string' && /^(https?:\/\/|data:image\/)/.test(u) && !/["<>\s]/.test(u);
+const isEmpty = f => !f.bg && !f.cor.length && !(f.walls || []).length && !f.rooms.length && !f.pois.length && !f.panos.length;
 
-const isEmpty = f => !f.bg && !f.cor.length && !f.rooms.length && !f.pois.length && !f.panos.length;
-
+// приводим этаж из файла к нашему формату: отбрасываем всё некорректное и выходящее за сетку
 function cleanFloor(f, used) {
   if (!f || typeof f != 'object') throw new Error('bad floor');
   const arr = v => Array.isArray(v) ? v : [], int = v => Number.isFinite(+v) ? Math.round(+v) : NaN,
         inGrid = (x, y) => x >= 0 && y >= 0 && x < GW && y < GH,
         uniq = (id, pre) => { id = id == null ? '' : String(id); while (!id || used.has(id)) id = pre + uid(); used.add(id); return id; };
-  const cor = [...new Set(arr(f.cor).map(c => Array.isArray(c) ? c.join(',') : String(c)).filter(k => {
-    const p = k.split(',').map(Number);
-    return p.length == 2 && p.every(Number.isInteger) && inGrid(p[0], p[1]);
-  }))];
   const walls = [...new Set(arr(f.walls).map(c => Array.isArray(c) ? c.join(',') : String(c)).filter(k => {
     const p = k.split(',');
     return p.length == 3 && Number.isInteger(+p[0]) && Number.isInteger(+p[1]) && (p[2] == 'h' || p[2] == 'v');
+  }))];
+  const cor = [...new Set(arr(f.cor).map(c => Array.isArray(c) ? c.join(',') : String(c)).filter(k => {
+    const p = k.split(',').map(Number);
+    return p.length == 2 && p.every(Number.isInteger) && inGrid(p[0], p[1]);
   }))];
   const rooms = arr(f.rooms).map(r => ({ x: int(r.x), y: int(r.y), w: int(r.w), h: int(r.h), name: String(r.name ?? 'Зал'), id: r.id }))
     .filter(r => [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0 && inGrid(r.x, r.y))
@@ -494,6 +478,7 @@ function importPlan(text) {
   const list = Array.isArray(j.floors) ? j.floors : [j];
   if (!list.length) throw new Error('no floors');
   const multi = list.length > 1;
+  // id панорам должны быть уникальны на всей карте (по ним кэшируются текстуры)
   const used = new Set();
   if (!multi) S.floors.forEach(f => { if (f !== F) f.panos.forEach(p => used.add(p.id)); });
   const clean = list.map(f => cleanFloor(f, used));
@@ -520,6 +505,7 @@ function downloadFloor() {
   setTimeout(() => URL.revokeObjectURL(a.href), 4e4);
 }
 
+/* --- НОВАЯ АСИНХРОННАЯ ЛОГИКА ЗАГРУЗКИ --- */
 $('#sheet').onchange = async e => {
   const t = e.target;
   if (t.dataset.r) { route[t.dataset.r] = t.value; sheet(); plan(); return; }
@@ -553,7 +539,7 @@ $('#sheet').onchange = async e => {
                 dropTex(n.id);
                 save(); plan(); sheet(); toast('Панорама загружена'); 
             } else {
-                
+                /* ошибка уже показана в uploadPanorama */
             }
         } catch (err) {
             toast('Ошибка при загрузке');
@@ -561,6 +547,7 @@ $('#sheet').onchange = async e => {
     }
   }
 };
+/* ----------------------------------------- */
 
 function img(f, mx, cb) {
   const fr = new FileReader();
@@ -602,6 +589,7 @@ $('#sheet').onclick = e => {
     try {
       const j = JSON.parse($('#json').value);
       if (j.floors) {
+        // картинки в JSON заменены на «…» — возвращаем из текущих данных
         const old = {}; S.floors.forEach(f => f.panos.forEach(p => old[p.id] = p.src));
         j.floors.forEach(f => {
           const o = S.floors.find(x => x.id == f.id);
@@ -610,7 +598,7 @@ $('#sheet').onclick = e => {
         });
         S = { ...S, ...j };
         S.floors.forEach(f => Object.assign(f, { cor: f.cor || [], walls: f.walls || [], rooms: f.rooms || [], pois: f.pois || [], panos: f.panos || [] }));
-      } else { 
+      } else { // старый формат — применяем к текущему этажу
         const keep = {}; F.panos.forEach(p => keep[p.id] = p.src);
         (j.panos || []).forEach(p => { p.src = keep[p.id]; });
         Object.assign(F, { cor: j.cor || [], walls: j.walls || [], rooms: j.rooms || [], pois: j.pois || [], panos: j.panos || [] });
@@ -648,6 +636,7 @@ $('#tools').onclick = e => {
   tools(); plan(); sheet();
 };
 
+/* ---------- доступ ---------- */
 async function hash(s) {
   try {
     const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('tk' + s));
@@ -692,6 +681,7 @@ $('#mo').onclick = () => {
   f.onkeydown = e => { if (e.key == 'Enter') go(); };
 };
 
+/* ---------- панорамы ---------- */
 let RN, SC, CAM, MESH, V = null, TX = {}, raf = 0;
 const cv = $('#cv');
 
@@ -818,7 +808,6 @@ function loop() {
 let gd = null;
 
 cv.onpointerdown = e => { gd = { x: e.clientX, y: e.clientY, m: 0 }; cv.setPointerCapture(e.pointerId); };
-
 cv.onpointermove = e => {
   if (!gd) return;
   const dx = e.clientX - gd.x, dy = e.clientY - gd.y;
@@ -827,7 +816,6 @@ cv.onpointermove = e => {
   const k = V.fov / cv.clientHeight;
   V.yaw -= dx * k; V.pitch = Math.max(-85, Math.min(85, V.pitch + dy * k));
 };
-
 cv.onpointerup = e => {
   if (gd && gd.m < 6) {
     $('#pvinfo').style.display = 'none';
@@ -842,7 +830,6 @@ cv.onpointerup = e => {
   }
   gd = null;
 };
-
 cv.onwheel = e => { V.fov = Math.max(30, Math.min(100, V.fov + e.deltaY * .05)); };
 
 $('#pv').onclick = e => {
@@ -875,10 +862,10 @@ $('#pv').onclick = e => {
   }
 };
 
+/* ---------- вход в карту (вызывается из app.js) ---------- */
 window.Core = {
   open(d, r) {
-    S = migrate(d); fi = 0; F = S.floors[0]; TX = {}; route = null; sh = null;
-    undoStack = [];
+    S = migrate(d); fi = 0; F = S.floors[0]; TX = {}; route = null; sh = null; undoStack = [];
     if (V) { $('#pv').hidden = true; V = null; }
     unlocked = r != 'view';
     setMode('v');
@@ -887,9 +874,9 @@ window.Core = {
   }
 };
 
+/* ---------- панорама на телефоне: щипок для зума ---------- */
 const pts = new Map();
 cv.addEventListener('pointerdown', e => { pts.set(e.pointerId, e); if (pts.size == 2) gd = null; });
-
 cv.addEventListener('pointermove', e => {
   if (!pts.has(e.pointerId)) return;
   const two = pts.size == 2, [a, b] = [...pts.values()],
@@ -900,6 +887,5 @@ cv.addEventListener('pointermove', e => {
     V.fov = Math.max(30, Math.min(100, V.fov * before / Math.max(1, Math.hypot(c.clientX - d.clientX, c.clientY - d.clientY))));
   }
 });
-
 cv.addEventListener('pointerup', e => pts.delete(e.pointerId));
 cv.addEventListener('pointercancel', e => { pts.delete(e.pointerId); gd = null; });

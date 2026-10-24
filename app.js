@@ -83,7 +83,7 @@ async function createMap() {
   const name = $('#cn').value.trim();
   if (!name) return toast('Введите название');
   const r = { id: rnd(), name, desc: $('#cd').value.trim(), share: { mode: 'off', token: rnd() },
-              data: { name, floors: [{ id: 'f1', name: 'Этаж 1', bg: null, bgo: .7, cor: [], walls: [], rooms: [], pois: [], panos: [] }] }, updated: Date.now(), dirty: true };
+              data: { name, floors: [{ id: 'f1', name: 'Этаж 1', bg: null, bgo: .7, cor: [], rooms: [], pois: [], panos: [] }] }, updated: Date.now(), dirty: true };
   try { await DB.put('maps', r); } catch { return toast('Не удалось сохранить карту'); }
   openRec(r, 'owner'); sync();
 }
@@ -126,7 +126,7 @@ async function doSync() {
     localStorage.setItem('tk-del', JSON.stringify(dq().filter(x => x != id)));
   }
 
-  if (!evOff) {
+  if (!evOff) { // события статистики: отправляем пачками, после успеха удаляем с устройства
     let ev = []; try { ev = await DB.all('events'); } catch {}
     while (ev.length && !evOff) {
       const part = ev.splice(0, 200),
@@ -147,6 +147,7 @@ async function doSync() {
       data: m.data, updated: m.updated
     });
     if (error) { console.error('sync upsert', error); toast('Не сохранилось в облако: ' + error.message); continue; }
+    // сбрасываем dirty, только если карту не меняли за время отправки
     const cur = await DB.get('maps', m.id);
     if (cur && cur.updated === m.updated) { cur.dirty = false; await DB.put('maps', cur); }
     if (rec && rec.id == m.id && rec.updated === m.updated) rec.dirty = false;
@@ -168,7 +169,8 @@ async function pull() {
   }
 }
 
-let evOff = false;
+/* ---------- статистика просмотров ---------- */
+let evOff = false; // таблицы events в облаке нет — копим события на устройстве
 const vid = (() => { try { let v = localStorage.getItem('tk-vid'); if (!v) localStorage.setItem('tk-vid', v = rnd().slice(0, 16)); return v; } catch { return 'anon'; } })();
 
 Core.onTrack = (kind, target) => {
@@ -177,6 +179,7 @@ Core.onTrack = (kind, target) => {
     .then(() => sync()).catch(() => {});
 };
 
+// события за последние days дней: из облака + ещё не отправленные с этого устройства
 Core.fetchEvents = async days => {
   const since = Date.now() - days * 864e5, seen = new Set(), out = [];
   let err = null;
@@ -220,10 +223,10 @@ async function pack() {
           m = { ...rec, data: { ...rec.data, floors }, share: { mode: rec.share.mode, token: '' }, dirty: false },
           out0 = h.replace(/<link rel="stylesheet" href="style.css">/, () => `<style>${css}</style>`)
             .replace(/<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase[^"]*"><\/script>/, '')
-            .replace(/<script src="https:\/\/cdnjs[^"]*three[^"]*"><\/script>/, () => `<script>${z(three)}<\/script>`)
-            .replace(/<script src="script.js"><\/script>/, () => `<script>window.__PKG=${z(JSON.stringify({ map: m, role: r }))}<\/script><script>${z(core)}<\/script>`)
-            .replace(/<script src="app.js"><\/script>/, () => `<script>${z(app)}<\/script>`);
-    const out = EXTRA.reduce((o, n, i) => o.replace(`<script src="${n}"></script>`, () => `<script>${z(ex[i])}<\/script>`), out0);
+            .replace(/<script src="https:\/\/cdnjs[^"]*three[^"]*"><\/script>/, () => `<script>${z(three)}</script>`)
+            .replace(/<script src="script.js"><\/script>/, () => `<script>window.__PKG=${z(JSON.stringify({ map: m, role: r }))}</script><script>${z(core)}</script>`)
+            .replace(/<script src="app.js"><\/script>/, () => `<script>${z(app)}</script>`);
+    const out = EXTRA.reduce((o, n, i) => o.replace(`<script src="${n}"></script>`, () => `<script>${z(ex[i])}</script>`), out0);
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([out], { type: 'text/html' }));
     a.download = (rec.name.replace(/[^\p{L}\p{N}]+/gu, '_') || 'map') + '.html';
     a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4e4);
@@ -271,6 +274,8 @@ async function openLink(id, tok) {
   openRec(r, ro, !!tok);
 }
 
+/* ---------- загрузка панорам в Supabase Storage ---------- */
+// уменьшаем до 4096 px по ширине: больше многие телефоны не принимают как WebGL-текстуру (будет чёрная сфера)
 const shrink = (f, w, q) => new Promise((ok, no) => {
   const u = URL.createObjectURL(f), i = new Image();
   i.onload = () => {
@@ -303,7 +308,10 @@ window.uploadImage = async function (file, { max = 4096, q = .85, prefix = '' } 
   try { return await putBlob(await shrink(file, max, q), prefix); }
   catch (e) { console.error(e); toast('Не удалось обработать файл'); return null; }
 };
+// панорамы: Pano.prepare проверяет пропорции 2:1, понимает метаданные Photo Sphere (GPano),
+// уменьшает ступенчато и в безопасный для iOS размер — резкость сохраняется
 window.uploadPanorama = async file => { const r = await Pano.prepare(file); return r ? putBlob(r.blob) : null; };
+/* ---------------------------------------------------------- */
 
 (async () => {
   body.toggleAttribute('data-embed', EMB);

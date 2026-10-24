@@ -1,6 +1,6 @@
-const C = 'tk-spacemap-v6', PANO = 'tk-spacemap-pano',
+const C = 'tk-spacemap-v5', PANO = 'tk-spacemap-pano',
       SHELL = ['./', 'index.html', 'style.css', 'script.js', 'app.js', 'pano.js', 'capture.js', 'stats.js', 'manifest.webmanifest', 'icon.svg'],
-      VENDOR = ['embed', 'vendor/fonts.css'];
+      VENDOR = ['embed', 'vendor/three.min.js', 'vendor/fonts.css'];
 
 self.addEventListener('install', e => e.waitUntil((async () => {
   const c = await caches.open(C);
