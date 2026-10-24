@@ -64,21 +64,31 @@ function mk() {
         RS.add(k);
       }
   });
-  if (F.walls) F.walls.forEach(w => { WS.delete(w); RS.delete(w); });
 }
 
 function bfs(a, b) {
   const q = [[a.x, a.y]],
         prev = { [a.x + ',' + a.y]: null },
         t = b.x + ',' + b.y;
+  
+  const walls = new Set(F.walls || []);
         
   for (let i = 0; i < q.length && !(t in prev); i++) {
     const [x, y] = q[i];
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const k = (x + dx) + ',' + (y + dy);
-      if (WS.has(k) && !(k in prev)) {
+    
+    const moves = [
+      [1, 0, `${x+1},${y},v`],
+      [-1, 0, `${x},${y},v`],
+      [0, 1, `${x},${y+1},h`],
+      [0, -1, `${x},${y},h`]
+    ];
+    
+    for (const [dx, dy, wall] of moves) {
+      const nx = x + dx, ny = y + dy;
+      const k = nx + ',' + ny;
+      if (WS.has(k) && !(k in prev) && !walls.has(wall)) {
         prev[k] = x + ',' + y;
-        q.push([x + dx, y + dy]);
+        q.push([nx, ny]);
       }
     }
   }
@@ -106,13 +116,6 @@ function plan() {
     if (!WS.has((x + 1) + ',' + y)) w += `M${x + 1} ${y}v1`;
   });
   
-  if (F.walls) {
-    F.walls.forEach(k => {
-      const [x, y] = k.split(',').map(Number);
-      h += `<rect x="${x}" y="${y}" width="1.02" height="1.02" fill="#ffffff" stroke="var(--line)" stroke-width=".05"/>`;
-    });
-  }
-  
   if (mode == 'o') {
     for (let i = 0; i <= GW; i++) g += `M${i} 0v${GH}`;
     for (let j = 0; j <= GH; j++) g += `M0 ${j}h${GW}`;
@@ -120,6 +123,19 @@ function plan() {
   }
   
   h += `<path d="${w}" stroke="var(--wall)" stroke-width=".16" stroke-linecap="square" fill="none"/>`;
+  
+  if (F.walls) {
+    let wp = '';
+    F.walls.forEach(k => {
+      const [x, y, d] = k.split(',');
+      if (d == 'h') wp += `M${x} ${y}h1`;
+      if (d == 'v') wp += `M${x} ${y}v1`;
+    });
+    if (wp) {
+      h += `<path d="${wp}" stroke="#a09b95" stroke-width=".26" stroke-linecap="round" fill="none"/>`;
+      h += `<path d="${wp}" stroke="#ffffff" stroke-width=".16" stroke-linecap="round" fill="none"/>`;
+    }
+  }
   
   F.rooms.forEach(r => h += `<text x="${r.x + r.w / 2}" y="${r.y + .75}" class="lbl" style="font-size:.5px;fill:var(--mut);stroke:none">${esc(r.name)}</text>`);
   
@@ -182,7 +198,6 @@ function tools() {
 
 const svg = $('#plan');
 
-// можно ли поставить точку в клетку: на проходимую (если залы/коридоры нарисованы) или куда угодно поверх готового плана
 const canPut = (x, y, it) => {
   const free = !WS.size && !!F.bg;
   return (free || WS.has(x + ',' + y)) && !F.pois.concat(F.panos).some(o => o !== it && o.x == x && o.y == y);
@@ -196,20 +211,39 @@ function cell(e) {
   ];
 }
 
-function paint(x, y) {
+function edge(e) {
+  const r = svg.getBoundingClientRect();
+  let rx = (e.clientX - r.left) / r.width * GW;
+  let ry = (e.clientY - r.top) / r.height * GH;
+  rx = Math.max(0, Math.min(GW, rx));
+  ry = Math.max(0, Math.min(GH, ry));
+  
+  let x = Math.floor(rx), y = Math.floor(ry);
+  if (x >= GW) x = GW - 1;
+  if (y >= GH) y = GH - 1;
+  
+  const dx = rx - x, dy = ry - y;
+  const distL = dx, distR = 1 - dx, distT = dy, distB = 1 - dy;
+  const min = Math.min(distL, distR, distT, distB);
+
+  if (min == distT) return `${x},${y},h`;
+  if (min == distB) return `${x},${y+1},h`;
+  if (min == distL) return `${x},${y},v`;
+  return `${x+1},${y},v`;
+}
+
+function paint(x, y, ed) {
   const k = x + ',' + y;
   if (tool == 'cor' && !WS.has(k)) { 
     F.cor.push(k); 
-    if (F.walls && F.walls.includes(k)) F.walls = F.walls.filter(w => w != k);
   }
   if (tool == 'wall') { 
     if (!F.walls) F.walls = [];
-    if (!F.walls.includes(k)) F.walls.push(k);
-    if (F.cor) F.cor = F.cor.filter(c => c != k);
+    if (!F.walls.includes(ed)) F.walls.push(ed);
   }
   if (tool == 'era') {
     if (F.cor) F.cor = F.cor.filter(c => c != k);
-    if (F.walls) F.walls = F.walls.filter(w => w != k);
+    if (F.walls) F.walls = F.walls.filter(w => w != ed);
     F.rooms = F.rooms.filter(r => !(x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h));
   }
   plan();
@@ -217,8 +251,9 @@ function paint(x, y) {
 
 svg.onpointerdown = e => {
   const [x, y] = cell(e);
+  const ed = edge(e);
   svg.setPointerCapture(e.pointerId);
-  pt = { x, y, lx: x, ly: y, m: false };
+  pt = { x, y, lx: x, ly: y, le: ed, m: false };
   dg = null;
   if (mode == 'o' && ['sel', 'poi', 'pano'].includes(tool)) {
     const it = F.pois.find(p => p.x == x && p.y == y) || F.panos.find(p => p.x == x && p.y == y);
@@ -226,21 +261,22 @@ svg.onpointerdown = e => {
   }
   if (mode == 'o') {
     if (tool == 'room') dr = { x0: x, y0: y, x1: x, y1: y };
-    if (tool == 'cor' || tool == 'wall' || tool == 'era') paint(x, y);
+    if (tool == 'cor' || tool == 'wall' || tool == 'era') paint(x, y, ed);
   }
 };
 
 svg.onpointermove = e => {
   if (!pt) return;
   const [x, y] = cell(e);
-  if (x == pt.lx && y == pt.ly) return;
-  pt.lx = x; pt.ly = y; pt.m = true;
-  if (dg) { // тащим точку/панораму
+  const ed = edge(e);
+  if (x == pt.lx && y == pt.ly && ed == pt.le) return;
+  pt.lx = x; pt.ly = y; pt.le = ed; pt.m = true;
+  if (dg) {
     if (canPut(x, y, dg.it)) { dg.it.x = x; dg.it.y = y; dg.moved = true; plan(); }
     return;
   }
   if (dr) { dr.x1 = x; dr.y1 = y; plan(); }
-  else if (mode == 'o' && (tool == 'cor' || tool == 'wall' || tool == 'era')) paint(x, y);
+  else if (mode == 'o' && (tool == 'cor' || tool == 'wall' || tool == 'era')) paint(x, y, ed);
 };
 
 svg.onpointerup = e => {
@@ -265,7 +301,6 @@ svg.onpointerup = e => {
 };
 
 svg.onpointercancel = () => { if (dg && dg.moved) save(); dg = null; pt = null; plan(); };
-// на телефоне не даём странице прокручиваться, пока тащим точку
 svg.addEventListener('touchmove', e => { if (dg) e.preventDefault(); }, { passive: false });
 
 function tap(x, y) {
@@ -402,8 +437,8 @@ function cleanFloor(f, used) {
     return p.length == 2 && p.every(Number.isInteger) && inGrid(p[0], p[1]);
   }))];
   const walls = [...new Set(arr(f.walls).map(c => Array.isArray(c) ? c.join(',') : String(c)).filter(k => {
-    const p = k.split(',').map(Number);
-    return p.length == 2 && p.every(Number.isInteger) && inGrid(p[0], p[1]);
+    const p = k.split(',');
+    return p.length == 3 && Number.isInteger(+p[0]) && Number.isInteger(+p[1]) && (p[2] == 'h' || p[2] == 'v');
   }))];
   const rooms = arr(f.rooms).map(r => ({ x: int(r.x), y: int(r.y), w: int(r.w), h: int(r.h), name: String(r.name ?? 'Зал'), id: r.id }))
     .filter(r => [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0 && inGrid(r.x, r.y))
