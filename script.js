@@ -487,10 +487,37 @@ function tex(p) {
   if (p.src) {
     const loader = new THREE.TextureLoader();
     loader.setCrossOrigin('anonymous');
-    t = loader.load(p.src);
+    
+    // Загружаем асинхронно с отслеживанием ошибок
+    t = loader.load(
+      p.src, 
+      function(texture) {
+        // Когда скачалась успешно
+        texture.generateMipmaps = false;
+        texture.minFilter = THREE.LinearFilter;
+        // ClampToEdgeWrapping не ломается на нестандартных размерах (NPOT)
+        texture.wrapS = THREE.ClampToEdgeWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
+        
+        if (MESH && MESH.material) {
+          MESH.material.map = texture;
+          MESH.material.needsUpdate = true;
+        }
+      }, 
+      undefined, 
+      function(err) {
+        console.error('Ошибка текстуры:', err);
+        toast('Ошибка: файл недоступен или слишком большой');
+      }
+    );
   } else {
     t = new THREE.CanvasTexture(gen(p.demo || p.name));
+    t.generateMipmaps = false;
+    t.minFilter = THREE.LinearFilter;
   }
+  
+  return TX[p.id] = t;
+}
   
   t.wrapS = THREE.RepeatWrapping; 
   t.offset.x = -.25;
