@@ -1,3 +1,4 @@
+/* Карта пространства: бессерверная PWA-версия (Supabase + IndexedDB). */
 (() => {
 const SUPABASE_URL = 'https://rlzgzbviuvkuzhcfyzcg.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_STl70_TA-R8cRWX9qsw_DA_GxuGw0WZ';
@@ -82,7 +83,7 @@ async function createMap() {
   const name = $('#cn').value.trim();
   if (!name) return toast('Введите название');
   const r = { id: rnd(), name, desc: $('#cd').value.trim(), share: { mode: 'off', token: rnd() },
-              data: { name, floors: [{ id: 'f1', name: 'Этаж 1', bg: null, bgo: .7, cor: [], rooms: [], pois: [], panos: [] }] }, updated: Date.now(), dirty: true };
+              data: { name, floors: [{ id: 'f1', name: 'Этаж 1', bg: null, bgo: .7, cor: [], walls: [], rooms: [], pois: [], panos: [] }] }, updated: Date.now(), dirty: true };
   try { await DB.put('maps', r); } catch { return toast('Не удалось сохранить карту'); }
   openRec(r, 'owner'); sync();
 }
