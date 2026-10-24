@@ -525,7 +525,7 @@ function tex(p) {
   t.generateMipmaps = false;
   
   return TX[p.id] = t;
-}
+
 
 const vec = (y, p) => {
   const a = y * Math.PI / 180, b = p * Math.PI / 180;
