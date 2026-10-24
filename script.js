@@ -482,68 +482,19 @@ function gen(name) {
 
 function tex(p) {
   if (TX[p.id]) return TX[p.id];
-  
-  let t;
-  if (p.src) {
-    const loader = new THREE.TextureLoader();
-    loader.setCrossOrigin('anonymous');
-    
-    // Загружаем асинхронно с отслеживанием ошибок
-    t = loader.load(
-      p.src, 
-      function(texture) {
-        // Когда скачалась успешно
-        texture.generateMipmaps = false;
-        texture.minFilter = THREE.LinearFilter;
-        // ClampToEdgeWrapping не ломается на нестандартных размерах (NPOT)
-        texture.wrapS = THREE.ClampToEdgeWrapping;
-        texture.wrapT = THREE.ClampToEdgeWrapping;
-        
-        if (MESH && MESH.material) {
-          MESH.material.map = texture;
-          MESH.material.needsUpdate = true;
-        }
-      }, 
-      undefined, 
-      function(err) {
-        console.error('Ошибка текстуры:', err);
-        toast('Ошибка: файл недоступен или слишком большой');
-      }
-    );
-  } else {
-    t = new THREE.CanvasTexture(gen(p.demo || p.name));
-    t.generateMipmaps = false;
-    t.minFilter = THREE.LinearFilter;
-  }
-  
+  const t = p.src ? new THREE.TextureLoader().setCrossOrigin('anonymous').load(p.src, undefined, undefined, () => toast('Не удалось загрузить панораму (проверьте интернет и доступ к хранилищу)')) : new THREE.CanvasTexture(gen(p.demo || p.name));
+  t.wrapS = THREE.RepeatWrapping; t.offset.x = -.25;
+  t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
   return TX[p.id] = t;
 }
-  
-  t.wrapS = THREE.RepeatWrapping; 
-  t.offset.x = -.25;
-  t.minFilter = THREE.LinearFilter; 
-  t.generateMipmaps = false;
-  
-  return TX[p.id] = t;
-
 
 const vec = (y, p) => {
   const a = y * Math.PI / 180, b = p * Math.PI / 180;
   return new THREE.Vector3(Math.sin(a) * Math.cos(b), Math.sin(b), -Math.cos(a) * Math.cos(b));
 };
 
-async function openPano(id, tour) {
-  if (typeof THREE == 'undefined') {
-    toast('Скачивание 3D-движка...');
-    await new Promise(resolve => {
-      const s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
-      s.onload = resolve;
-      document.head.appendChild(s);
-    });
-    if (typeof THREE == 'undefined') return toast('Ошибка: проверьте интернет');
-  }
-
+function openPano(id, tour) {
+  if (typeof THREE == 'undefined') return toast('Не удалось загрузить 3D-библиотеку');
   if (!RN) {
     RN = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
     RN.setPixelRatio(Math.min(devicePixelRatio, 2));
