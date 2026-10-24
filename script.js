@@ -1,3 +1,4 @@
+/* Метод инициализации констант, категорий объектов и вспомогательных утилит (поиск DOM, генерация ID, экранирование HTML, расчет углов) */
 const GW = 28, GH = 18, KEY = 'tk-spacemap-v1';
 const CATS = {
   stand: ['🏷', 'Стенд'],
@@ -13,9 +14,13 @@ const $ = s => document.querySelector(s),
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const brg = (a, b) => Math.atan2(b.x - a.x, -(b.y - a.y)) * 180 / Math.PI;
 
+/* Метод создания пустого объекта этажа с массивами для хранения залов, стен, коридоров, точек интереса и панорам */
 const floor = (name, o = {}) => ({ id: 'f' + uid(), name, bg: null, bgo: .7, cor: [], walls: [], rooms: [], pois: [], panos: [], ...o });
+
+/* Метод создания базовой структуры пустой карты (state по умолчанию) */
 const blank = () => ({ name: '', floors: [floor('Этаж 1')] });
 
+/* Метод миграции устаревшего формата данных (когда не было этажей) в новую структуру с поддержкой мультиэтажности и массивом стен */
 function migrate(d) {
   if (!d.floors) {
     d.floors = [floor('Этаж 1', { id: 'f1', bg: d.bg || null, cor: d.cor || [], walls: d.walls || [], rooms: d.rooms || [], pois: d.pois || [], panos: d.panos || [] })];
@@ -24,11 +29,13 @@ function migrate(d) {
   return d;
 }
 
+/* Метод загрузки сохраненных данных карты из локального хранилища браузера (localStorage) */
 function load() {
   try { return JSON.parse(localStorage.getItem(KEY)); }
   catch { return null; }
 }
 
+/* Инициализация глобальных переменных состояния приложения: режим работы, выбранный инструмент, активный маршрут, история отмен */
 let S = blank(),
     mode = 'v',
     tool = 'sel',
@@ -40,8 +47,10 @@ let S = blank(),
 
 let F = S.floors[0], fi = 0; 
 
+/* Метод-обертка для передачи обновленного состояния карты (S) в ядро сохранения (сохраняет в IndexedDB) */
 function save() { if (window.Core && Core.onSave) Core.onSave(S); }
 
+/* Метод для отображения кратковременных всплывающих уведомлений (toast) на экране */
 function toast(t) {
   const e = $('#toast');
   e.textContent = t;
@@ -50,6 +59,7 @@ function toast(t) {
   toast.t = setTimeout(() => e.style.display = 'none', 2600);
 }
 
+/* Метод для сохранения текущего состояния карты в стек истории отмен (с лимитом в 30 шагов) */
 function pushState() {
   if (mode !== 'o') return;
   const cur = JSON.stringify({ fi, S });
@@ -59,6 +69,7 @@ function pushState() {
   }
 }
 
+/* Метод для отмены последнего действия (Undo): извлекает предыдущее состояние из стека и перерисовывает карту */
 function undo() {
   if (mode !== 'o' || undoStack.length === 0) return;
   const prev = JSON.parse(undoStack.pop());
@@ -71,6 +82,7 @@ function undo() {
   toast('Отменено');
 }
 
+/* Метод обработки клавиатурных сокращений (перехватывает Ctrl+Z или Cmd+Z для вызова функции отмены) */
 window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
     undo();
@@ -78,10 +90,12 @@ window.addEventListener('keydown', e => {
   }
 });
 
+/* Методы-хелперы для быстрого поиска объектов (точек, панорам, залов) по их уникальному ID на текущем этаже */
 const P = id => F.pois.find(p => p.id == id),
       N = id => F.panos.find(p => p.id == id),
       R_ = id => F.rooms.find(r => r.id == id);
 
+/* Метод подготовки данных для поиска маршрута: собирает все проходимые клетки (коридоры и залы) в единую сетку (Set) */
 function mk() {
   WS = new Set(F.cor);
   RS = new Set();
@@ -95,6 +109,7 @@ function mk() {
   });
 }
 
+/* Метод поиска кратчайшего пути (алгоритм BFS) между двумя клетками на сетке, учитывающий препятствия в виде нарисованных стен */
 function bfs(a, b) {
   const q = [[a.x, a.y]],
         prev = { [a.x + ',' + a.y]: null },
@@ -128,6 +143,7 @@ function bfs(a, b) {
   return p.reverse();
 }
 
+/* Основной метод рендеринга 2D-плана: динамически генерирует SVG-код для фона, сетки, залов, коридоров, стен, точек интереса и маршрута */
 function plan() {
   mk();
   const svg = $('#plan');
@@ -189,6 +205,7 @@ function plan() {
   $('#chips').innerHTML = F.pois.map(p => `<button data-c="${p.id}">${CATS[p.cat][0]} ${esc(p.name)}</button>`).join('');
 }
 
+/* Метод отрисовки панели управления этажами (создание кнопок переключения между этажами) */
 function floorsBar() {
   const el = $('#floors');
   el.hidden = S.floors.length < 2 && mode != 'o';
@@ -196,6 +213,7 @@ function floorsBar() {
     (mode == 'o' ? '<button data-fl="add" class="add">＋ Этаж</button>' : '');
 }
 
+/* Метод переключения активного этажа по его индексу и обновления отображения плана */
 function goFloor(i) {
   if (i == fi || !S.floors[i]) return;
   fi = i; F = S.floors[i];
@@ -204,6 +222,7 @@ function goFloor(i) {
   plan(); sheet();
 }
 
+/* Метод добавления нового пустого этажа в карту и переключения на него */
 function addFloor() {
   pushState();
   const f = floor('Этаж ' + (S.floors.length + 1));
@@ -213,12 +232,14 @@ function addFloor() {
   toast('Этаж добавлен — загрузите план или нарисуйте залы');
 }
 
+/* Метод обработки кликов по панели этажей (делегирование событий на переключение или добавление) */
 $('#floors').onclick = e => {
   const b = e.target.closest('[data-fl]');
   if (!b) return;
   if (b.dataset.fl == 'add') addFloor(); else goFloor(+b.dataset.fl);
 };
 
+/* Метод рендеринга панели инструментов организатора (выбор, рисование, точки, ластик, отмена) */
 function tools() {
   $('#tools').innerHTML = [['sel', '☝ Выбор'], ['room', '▭ Зал'], ['cor', '▬ Коридор'], ['wall', '⬜ Стена'], ['era', '⌫ Ластик'], ['poi', '📍 Точка'], ['pano', '📷 Панорама'], ['undo', '↩ Назад'], ['menu', '⚙ Карта']]
     .map(([t, l]) => `<button data-t="${t}" class="${tool == t ? 'on' : ''}">${l}</button>`)
@@ -227,11 +248,13 @@ function tools() {
 
 const svg = $('#plan');
 
+/* Метод проверки, можно ли установить точку/панораму в указанные координаты сетки (чтобы не поставить друг на друга) */
 const canPut = (x, y, it) => {
   const free = !WS.size && !!F.bg;
   return (free || WS.has(x + ',' + y)) && !F.pois.concat(F.panos).some(o => o !== it && o.x == x && o.y == y);
 };
 
+/* Метод преобразования экранных пиксельных координат события (мыши/касания) в целочисленные координаты клеток сетки 2D-плана */
 function cell(e) {
   const r = svg.getBoundingClientRect();
   return [
@@ -240,6 +263,7 @@ function cell(e) {
   ];
 }
 
+/* Метод вычисления ближайшей границы клетки (левая, правая, верхняя, нижняя) для точного рисования тонких стен */
 function edge(e) {
   const r = svg.getBoundingClientRect();
   let rx = (e.clientX - r.left) / r.width * GW;
@@ -261,6 +285,7 @@ function edge(e) {
   return `${x+1},${y},v`;
 }
 
+/* Метод применения активного инструмента рисования (коридор, стена, ластик) к указанным координатам */
 function paint(x, y, ed) {
   const k = x + ',' + y;
   if (tool == 'cor' && !WS.has(k)) { 
@@ -278,6 +303,7 @@ function paint(x, y, ed) {
   plan();
 }
 
+/* Метод-обработчик начала касания/нажатия мыши на SVG-карте (сохраняет стейт, фиксирует начальные координаты и начинает рисование) */
 svg.onpointerdown = e => {
   if (mode == 'o') pushState();
   const [x, y] = cell(e);
@@ -295,6 +321,7 @@ svg.onpointerdown = e => {
   }
 };
 
+/* Метод-обработчик движения мыши/пальца по карте (обновляет прямоугольник выделения зала, перемещает точки или продолжает рисование) */
 svg.onpointermove = e => {
   if (!pt) return;
   const [x, y] = cell(e);
@@ -309,6 +336,7 @@ svg.onpointermove = e => {
   else if (mode == 'o' && (tool == 'cor' || tool == 'wall' || tool == 'era')) paint(x, y, ed);
 };
 
+/* Метод-обработчик завершения касания (завершает рисование зала, сохраняет изменения в БД или определяет точечный клик 'tap') */
 svg.onpointerup = e => {
   if (!pt) return;
   const { x, y } = pt;
@@ -330,9 +358,13 @@ svg.onpointerup = e => {
   pt = null;
 };
 
+/* Метод-обработчик отмены касания (например, если браузер прервал свайп) — возвращает перетаскиваемый объект на место */
 svg.onpointercancel = () => { if (dg && dg.moved) save(); dg = null; pt = null; plan(); };
+
+/* Метод предотвращения стандартной прокрутки экрана на мобильных устройствах во время перетаскивания объектов */
 svg.addEventListener('touchmove', e => { if (dg) e.preventDefault(); }, { passive: false });
 
+/* Метод обработки одиночного клика по клетке плана (открывает карточку объекта, ставит новую точку/панораму или выбирает зал) */
 function tap(x, y) {
   const poi = F.pois.find(p => p.x == x && p.y == y),
         pn = F.panos.find(p => p.x == x && p.y == y),
@@ -358,6 +390,7 @@ function tap(x, y) {
   sheet();
 }
 
+/* Метод поиска ближайшей панорамы к выбранной точке интереса (для предложения виртуального тура в карточке места) */
 const nearPano = p => {
   let b = null, d = 6;
   F.panos.forEach(n => {
@@ -367,6 +400,7 @@ const nearPano = p => {
   return b;
 };
 
+/* Метод пересчета маршрута (запускает BFS) и формирования списка панорам (tour), находящихся поблизости от найденного пути */
 function recalc() {
   if (!route) return;
   const a = P(route.from), b = P(route.to);
@@ -385,10 +419,13 @@ function recalc() {
   }
 }
 
+/* Метод генерации HTML-кода для выпадающих списков (<option>), содержащих все точки интереса на этаже */
 const opts = (sel) => F.pois.map(p => `<option value="${p.id}" ${p.id == sel ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
 
+/* Метод-шаблон для генерации стандартного заголовка нижнего всплывающего окна (шторки) с иконкой и кнопкой закрытия */
 const head = (ic, t, s) => `<div class="grab"></div><div class="row"><span class="ic">${ic}</span><div><h3>${esc(t)}</h3><small>${s}</small></div><button class="x" data-a="x">✕</button></div>`;
 
+/* Основной метод рендеринга нижнего всплывающего окна (sheet), генерирующий HTML-содержимое в зависимости от выбранного объекта (карточка точки, настройки зала, меню) */
 function sheet() {
   const el = $('#sheet');
   if (!sh) { el.className = ''; return; }
@@ -432,8 +469,10 @@ function sheet() {
   if (h) el.innerHTML = h;
 }
 
+/* Метод получения объекта, который в данный момент редактируется в открытой шторке (точка, панорама, зал или вся карта) */
 const cur = () => sh.t == 'ep' ? P(sh.id) : sh.t == 'en' ? N(sh.id) : sh.t == 'er' ? R_(sh.id) : sh.t == 'menu' ? S : null;
 
+/* Метод-обработчик ввода текста в поля шторки: мгновенно сохраняет изменения атрибутов текущего объекта (имя, описание, прозрачность плана) */
 $('#sheet').oninput = e => {
   const t = e.target, o = cur();
   if (t.dataset.ff) {
@@ -451,9 +490,13 @@ $('#sheet').oninput = e => {
   }
 };
 
+/* Метод валидации URL-строк: проверяет, является ли строка безопасной ссылкой (http/data:image) без XSS-символов */
 const okUrl = u => typeof u == 'string' && /^(https?:\/\/|data:image\/)/.test(u) && !/["<>\s]/.test(u);
+
+/* Метод проверки, является ли этаж полностью пустым (нет фона, стен, точек и комнат) */
 const isEmpty = f => !f.bg && !f.cor.length && !f.rooms.length && !f.pois.length && !f.panos.length;
 
+/* Метод очистки импортируемого JSON-файла этажа: удаляет мусор, проверяет выход за границы сетки и генерирует уникальные ID */
 function cleanFloor(f, used) {
   if (!f || typeof f != 'object') throw new Error('bad floor');
   const arr = v => Array.isArray(v) ? v : [], int = v => Number.isFinite(+v) ? Math.round(+v) : NaN,
@@ -481,6 +524,7 @@ function cleanFloor(f, used) {
   return { name: String(f.name || ''), bg: f.bg == '…' ? '…' : (okUrl(f.bg) ? f.bg : null), bgo: Number.isFinite(+f.bgo) ? Math.min(1, Math.max(.1, +f.bgo)) : .7, cor, walls, rooms, pois, panos };
 }
 
+/* Метод импорта плана из текстовой JSON-строки: парсит файл, очищает его и интегрирует в текущую карту с сохранением существующих изображений */
 function importPlan(text) {
   const j = JSON.parse(text);
   if (!j || typeof j != 'object') throw new Error('bad json');
@@ -505,6 +549,7 @@ function importPlan(text) {
   return clean.reduce((a, c) => ({ rooms: a.rooms + c.rooms.length, pois: a.pois + c.pois.length, panos: a.panos + c.panos.length }), { rooms: 0, pois: 0, panos: 0 });
 }
 
+/* Метод экспорта: формирует JSON-файл из данных текущего этажа и скачивает его на устройство пользователя */
 function downloadFloor() {
   const blob = new Blob([JSON.stringify(F, null, 1)], { type: 'application/json' }), a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -513,6 +558,7 @@ function downloadFloor() {
   setTimeout(() => URL.revokeObjectURL(a.href), 4e4);
 }
 
+/* Метод-обработчик загрузки файлов через <input type="file"> в шторке: загружает фоновые планы, JSON-карты или 360-панорамы в облако */
 $('#sheet').onchange = async e => {
   const t = e.target;
   if (t.dataset.r) { route[t.dataset.r] = t.value; sheet(); plan(); return; }
@@ -555,6 +601,7 @@ $('#sheet').onchange = async e => {
   }
 };
 
+/* Метод конвертации изображения в строку Base64 для локального сохранения, если загрузка в облако недоступна */
 function img(f, mx, cb) {
   const fr = new FileReader();
   fr.onload = () => {
@@ -573,6 +620,7 @@ function img(f, mx, cb) {
   fr.readAsDataURL(f);
 }
 
+/* Метод-маршрутизатор кликов по кнопкам в нижнем меню (шторке): удаление точек, построение маршрута, открытие панорам, скачивание и т.д. */
 $('#sheet').onclick = e => {
   const b = e.target.closest('[data-a]');
   if (!b) return;
@@ -619,16 +667,19 @@ $('#sheet').onclick = e => {
   save(); plan(); sheet();
 };
 
+/* Метод-обработчик клика по карточкам-чипсам на 2D-плане для открытия подробной информации */
 $('#chips').onclick = e => {
   const b = e.target.closest('[data-c]');
   if (b) { sh = { t: 'pv', id: b.dataset.c }; plan(); sheet(); }
 };
 
+/* Метод-обработчик главной плавающей кнопки (FAB) для открытия интерфейса построения маршрута */
 $('#rbtn').onclick = () => {
   route = route || { from: F.pois[0]?.id, to: F.pois[1]?.id };
   sh = { t: 'rt' }; plan(); sheet();
 };
 
+/* Метод-обработчик выбора инструмента в панели редактирования (записывает выбранный tool или вызывает функцию 'undo'/'menu') */
 $('#tools').onclick = e => {
   const b = e.target.closest('[data-t]');
   if (!b) return;
@@ -640,7 +691,7 @@ $('#tools').onclick = e => {
 };
 
 
-
+/* Метод переключения глобального режима работы приложения: 'v' (посетитель/view) или 'o' (организатор/owner), скрывает и показывает панели */
 function setMode(m) {
   mode = m;
   document.body.classList.toggle('o', m == 'o');
@@ -650,8 +701,10 @@ function setMode(m) {
   tools(); plan(); sheet();
 }
 
+/* Метод привязки кнопки 'Посетитель' к переключению в режим просмотра */
 $('#mv').onclick = () => setMode('v');
 
+/* Метод привязки кнопки 'Организатор' к переключению в режим редактирования (срабатывает только если есть права 'unlocked') */
 $('#mo').onclick = () => {
   if (unlocked) setMode('o');
 };
@@ -660,6 +713,7 @@ $('#mo').onclick = () => {
 let RN, SC, CAM, MESH, V = null, TX = {}, raf = 0;
 const cv = $('#cv');
 
+/* Метод генерации текстуры-заглушки (цветного фона с текстом), которая отображается в 3D-просмотре, если настоящая панорама еще не загружена */
 function gen(name) {
   const c = document.createElement('canvas');
   c.width = 2048; c.height = 1024;
@@ -704,6 +758,7 @@ function gen(name) {
   return c;
 }
 
+/* Метод загрузки текстуры панорамы: скачивает изображение по URL (CORS), кэширует его в TX и подставляет на 3D-сферу (или выдает заглушку) */
 function tex(p) {
   if (TX[p.id]) return TX[p.id];
   const t = p.src ? new THREE.TextureLoader().setCrossOrigin('anonymous').load(p.src, undefined, undefined, () => fetch(p.src, { method: 'HEAD' }).then(r => { console.error('pano load failed', p.src, r.status); toast(r.ok ? 'Панорама скачивается, но не читается как изображение' : 'Панорама недоступна: HTTP ' + r.status + ' (бакет не публичный или файл удалён)'); }).catch(() => toast('Панорама не загрузилась: нет сети или заблокировано CORS'))) : new THREE.CanvasTexture(gen(p.demo || p.name));
@@ -712,11 +767,13 @@ function tex(p) {
   return TX[p.id] = t;
 }
 
+/* Метод перевода сферических координат в 3D-вектор для правильного позиционирования маркеров на панораме */
 const vec = (y, p) => {
   const a = y * Math.PI / 180, b = p * Math.PI / 180;
   return new THREE.Vector3(Math.sin(a) * Math.cos(b), Math.sin(b), -Math.cos(a) * Math.cos(b));
 };
 
+/* Метод запуска 3D-движка Three.js: создает сцену, сферу, камеру, натягивает на нее панораму и включает полноэкранный режим просмотра */
 function openPano(id, tour) {
   if (typeof THREE == 'undefined') return toast('Не удалось загрузить 3D-библиотеку');
   if (!RN) {
@@ -741,6 +798,7 @@ function openPano(id, tour) {
   if (!raf) loop();
 }
 
+/* Метод сборки интерактивных HTML-маркеров (хотспотов) поверх 3D-канваса: добавляет точки интереса и стрелки перехода к соседним панорамам */
 function build() {
   const p = N(V.id); V.hs = [];
   p.hs.forEach((s, i) => {
@@ -754,11 +812,13 @@ function build() {
   V.els = [...$('#hsl').children];
 }
 
+/* Метод отрисовки навигационной панели внутри 3D-тура (кнопки "вперед/назад" по маршруту и кнопка "Добавить точку" для организаторов) */
 function bar() {
   const t = V.tour, i = t ? t.indexOf(V.id) : -1;
   $('#pvbar').innerHTML = (t && i >= 0 ? `<button data-v="prev" ${i ? '' : 'disabled'}>◀</button><button>${i + 1} / ${t.length}</button><button data-v="next" ${i < t.length - 1 ? '' : 'disabled'}>▶</button>` : '') + (mode == 'o' ? `<button data-v="add" class="${V.add ? 'on' : ''}">＋ Точка на панораме</button>` : '');
 }
 
+/* Главный цикл рендеринга 3D (requestAnimationFrame): постоянно перерисовывает сцену, реагирует на движения камеры и приклеивает HTML-маркеры к 3D-координатам */
 function loop() {
   raf = requestAnimationFrame(loop);
   if ($('#pv').hidden) { cancelAnimationFrame(raf); raf = 0; return; }
@@ -779,7 +839,10 @@ function loop() {
 
 let gd = null;
 
+/* Метод-перехватчик начала вращения панорамы: запоминает координаты касания мыши или пальца на 3D-холсте */
 cv.onpointerdown = e => { gd = { x: e.clientX, y: e.clientY, m: 0 }; cv.setPointerCapture(e.pointerId); };
+
+/* Метод-обработчик движения: вращает камеру панорамы, рассчитывая сдвиг по осям X (yaw) и Y (pitch) с учетом текущего зума (fov) */
 cv.onpointermove = e => {
   if (!gd) return;
   const dx = e.clientX - gd.x, dy = e.clientY - gd.y;
@@ -788,6 +851,8 @@ cv.onpointermove = e => {
   const k = V.fov / cv.clientHeight;
   V.yaw -= dx * k; V.pitch = Math.max(-85, Math.min(85, V.pitch + dy * k));
 };
+
+/* Метод-обработчик отпускания мыши на панораме: если сдвиг минимальный (клик), открывает диалог привязки новой точки к этим 3D-координатам */
 cv.onpointerup = e => {
   if (gd && gd.m < 6) {
     $('#pvinfo').style.display = 'none';
@@ -802,8 +867,11 @@ cv.onpointerup = e => {
   }
   gd = null;
 };
+
+/* Метод для работы зума в 3D (приближение/отдаление) с помощью колесика мыши (изменяет FOV камеры) */
 cv.onwheel = e => { V.fov = Math.max(40, Math.min(100, V.fov + e.deltaY * .05)); };
 
+/* Метод обработки всех интерфейсных кликов поверх 3D-панорамы (закрытие плеера, переходы по туру, привязка или отвязка точек организатором) */
 $('#pv').onclick = e => {
   const b = e.target.closest('button');
   if (!b) return;
@@ -835,6 +903,7 @@ $('#pv').onclick = e => {
 };
 
 
+/* Глобальный метод инициализации карты (вызывается из app.js): очищает старые кэши, скрывает 3D, включает нужный режим прав доступа */
 window.Core = {
   open(d, r) {
     S = migrate(d); fi = 0; F = S.floors[0]; TX = {}; route = null; sh = null;
@@ -846,9 +915,11 @@ window.Core = {
   }
 };
 
-
+/* Метод поддержки мультитач-жестов на смартфонах: запоминает первое касание экрана на 3D-панораме */
 const pts = new Map();
 cv.addEventListener('pointerdown', e => { pts.set(e.pointerId, e); if (pts.size == 2) gd = null; });
+
+/* Метод-обработчик жеста 'щипок' (pinch-to-zoom) на смартфонах: измеряет дистанцию между двумя пальцами и плавно меняет угол обзора (зум) панорамы */
 cv.addEventListener('pointermove', e => {
   if (!pts.has(e.pointerId)) return;
   const two = pts.size == 2, [a, b] = [...pts.values()],
@@ -859,5 +930,7 @@ cv.addEventListener('pointermove', e => {
     V.fov = Math.max(40, Math.min(100, V.fov * before / Math.max(1, Math.hypot(c.clientX - d.clientX, c.clientY - d.clientY))));
   }
 });
+
+/* Методы очистки массива касаний при отрывании пальца от экрана смартфона, чтобы мультитач-жесты не сбоили */
 cv.addEventListener('pointerup', e => pts.delete(e.pointerId));
 cv.addEventListener('pointercancel', e => { pts.delete(e.pointerId); gd = null; });
