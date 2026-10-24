@@ -1,3 +1,4 @@
+/* Карта пространства: бессерверная PWA-версия (Supabase + IndexedDB). */
 (() => {
 const SUPABASE_URL = 'https://rlzgzbviuvkuzhcfyzcg.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_STl70_TA-R8cRWX9qsw_DA_GxuGw0WZ';
@@ -19,7 +20,6 @@ const body = document.body,
       link = r => BASE + '/#/m/' + r.id + '/' + r.share.token,
       esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-/* ---------- хранилище (IndexedDB: работает офлайн) ---------- */
 const DB = (() => {
   let p;
   const open = () => p || (p = new Promise((ok, no) => {
@@ -36,7 +36,6 @@ const DB = (() => {
 })();
 const mine = async () => (await DB.all('maps')).sort((a, b) => b.updated - a.updated);
 
-/* ---------- интерфейс без авторизации ---------- */
 function deny(msg) {
   view('auth'); nav_(false);
   $('#auth').innerHTML = `<div class="card"><h3>Нет доступа</h3><p>${msg}</p>${EMB ? '' : '<div class="btns"><button class="pri" onclick="location.hash=\'\';location.reload()">На главную</button></div>'}</div>`;
@@ -76,7 +75,6 @@ $('#cab').onclick = async e => {
 };
 $('#hb').onclick = $('#bg').onclick = () => nav_();
 
-/* ---------- создание и сохранение карты ---------- */
 async function createMap() {
   const name = $('#cn').value.trim();
   if (!name) return toast('Введите название');
@@ -89,7 +87,7 @@ async function createMap() {
 function openRec(r, ro, solo) {
   rec = r; role = ro;
   body.toggleAttribute('data-solo', !!solo);
-  $('#shr').hidden = ro != 'owner' && ro != 'edit'; // Поделиться может и редактор
+  $('#shr').hidden = ro != 'owner' && ro != 'edit'; 
   view('map'); nav_(!solo && innerWidth >= 900);
   Core.open(r.data, ro);
   nav();
@@ -108,7 +106,6 @@ async function persist(r = rec) {
   nav(); sync();
 }
 
-/* ---------- Supabase: синхронизация ---------- */
 async function sync() {
   if (!navigator.onLine) return;
   
@@ -146,7 +143,6 @@ async function pull() {
 
 function dropRemote(id) { localStorage.setItem('tk-del', JSON.stringify([...dq(), id])); sync(); }
 
-/* ---------- Поделиться и Офлайн-пакет ---------- */
 function shareDlg() {
   const m = rec.share.mode, o = (v, t) => `<option value="${v}"${m == v ? ' selected' : ''}>${t}</option>`;
   dlg(`<h3>Поделиться «${esc(rec.name)}»</h3><label>Доступ по ссылке</label><select id="sm">${o('off', '🔒 Только я')}${o('view', '👁 Все со ссылкой — посетитель (просмотр)')}${o('edit', '✏️ Все со ссылкой — организатор (редактирование)')}</select>` +
@@ -193,7 +189,6 @@ $('#dlg').onclick = async e => {
   if (d.d == 'pack') pack();
 };
 
-/* ---------- Открытие по ссылке ---------- */
 async function openLink(id, tok) {
   let r = null;
   try { r = await DB.get('maps', id); } catch {}
@@ -207,14 +202,44 @@ async function openLink(id, tok) {
   }
   
   let ro = r && r.share.token === tok && r.share.mode != 'off' ? r.share.mode : null;
-  if (!tok && r) ro = 'owner'; // Карта открыта локально создателем
+  if (!tok && r) ro = 'owner'; 
   if (EMB && ro) ro = 'view';
   
   if (!ro) return deny('Владелец закрыл доступ по этой ссылке или карта удалена.');
   openRec(r, ro, !!tok);
 }
 
-/* ---------- Инициализация ---------- */
+/* ---------- НОВАЯ ФУНКЦИЯ ДЛЯ ЗАГРУЗКИ ПАНОРАМ ---------- */
+window.uploadPanorama = async function(file) {
+  try {
+    if (typeof toast === 'function') toast('Загрузка панорамы...');
+    
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+
+    const { data, error } = await supabase.storage
+      .from('panoramas')
+      .upload(fileName, file);
+
+    if (error) {
+      console.error('Ошибка загрузки:', error);
+      if (typeof toast === 'function') toast('Ошибка загрузки панорамы');
+      return null;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from('panoramas')
+      .getPublicUrl(fileName);
+
+    if (typeof toast === 'function') toast('Панорама успешно загружена!');
+    return publicUrlData.publicUrl; 
+  } catch (err) {
+    console.error('Ошибка сети при загрузке:', err);
+    return null;
+  }
+};
+/* -------------------------------------------------------- */
+
 (async () => {
   body.toggleAttribute('data-embed', EMB);
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !PKG) navigator.serviceWorker.register('sw.js').catch(() => {});
