@@ -16,7 +16,6 @@ const brg = (a, b) => Math.atan2(b.x - a.x, -(b.y - a.y)) * 180 / Math.PI;
 const floor = (name, o = {}) => ({ id: 'f' + uid(), name, bg: null, bgo: .7, cor: [], walls: [], rooms: [], pois: [], panos: [], ...o });
 const blank = () => ({ name: '', floors: [floor('Этаж 1')] });
 
-// старые карты (один этаж без floors) переводим в новый формат
 function migrate(d) {
   if (!d.floors) {
     d.floors = [floor('Этаж 1', { id: 'f1', bg: d.bg || null, cor: d.cor || [], walls: d.walls || [], rooms: d.rooms || [], pois: d.pois || [], panos: d.panos || [] })];
@@ -39,7 +38,7 @@ let S = blank(),
     WS, RS, dr = null, pt = null, dg = null,
     undoStack = [];
 
-let F = S.floors[0], fi = 0; // F — активный этаж
+let F = S.floors[0], fi = 0; 
 
 function save() { if (window.Core && Core.onSave) Core.onSave(S); }
 
@@ -129,7 +128,6 @@ function bfs(a, b) {
   return p.reverse();
 }
 
-/* ---------- план ---------- */
 function plan() {
   mk();
   const svg = $('#plan');
@@ -360,7 +358,6 @@ function tap(x, y) {
   sheet();
 }
 
-/* ---------- панель ---------- */
 const nearPano = p => {
   let b = null, d = 6;
   F.panos.forEach(n => {
@@ -454,11 +451,9 @@ $('#sheet').oninput = e => {
   }
 };
 
-/* ---------- план этажа из JSON-файла ---------- */
 const okUrl = u => typeof u == 'string' && /^(https?:\/\/|data:image\/)/.test(u) && !/["<>\s]/.test(u);
 const isEmpty = f => !f.bg && !f.cor.length && !f.rooms.length && !f.pois.length && !f.panos.length;
 
-// приводим этаж из файла к нашему формату: отбрасываем всё некорректное и выходящее за сетку
 function cleanFloor(f, used) {
   if (!f || typeof f != 'object') throw new Error('bad floor');
   const arr = v => Array.isArray(v) ? v : [], int = v => Number.isFinite(+v) ? Math.round(+v) : NaN,
@@ -492,7 +487,6 @@ function importPlan(text) {
   const list = Array.isArray(j.floors) ? j.floors : [j];
   if (!list.length) throw new Error('no floors');
   const multi = list.length > 1;
-  // id панорам должны быть уникальны на всей карте (по ним кэшируются текстуры)
   const used = new Set();
   if (!multi) S.floors.forEach(f => { if (f !== F) f.panos.forEach(p => used.add(p.id)); });
   const clean = list.map(f => cleanFloor(f, used));
@@ -519,7 +513,6 @@ function downloadFloor() {
   setTimeout(() => URL.revokeObjectURL(a.href), 4e4);
 }
 
-/* --- НОВАЯ АСИНХРОННАЯ ЛОГИКА ЗАГРУЗКИ --- */
 $('#sheet').onchange = async e => {
   const t = e.target;
   if (t.dataset.r) { route[t.dataset.r] = t.value; sheet(); plan(); return; }
@@ -561,7 +554,6 @@ $('#sheet').onchange = async e => {
     }
   }
 };
-/* ----------------------------------------- */
 
 function img(f, mx, cb) {
   const fr = new FileReader();
@@ -601,7 +593,6 @@ $('#sheet').onclick = e => {
     try {
       const j = JSON.parse($('#json').value);
       if (j.floors) {
-        // картинки в JSON заменены на «…» — возвращаем из текущих данных
         const old = {}; S.floors.forEach(f => f.panos.forEach(p => old[p.id] = p.src));
         j.floors.forEach(f => {
           const o = S.floors.find(x => x.id == f.id);
@@ -610,7 +601,7 @@ $('#sheet').onclick = e => {
         });
         S = { ...S, ...j };
         S.floors.forEach(f => Object.assign(f, { cor: f.cor || [], walls: f.walls || [], rooms: f.rooms || [], pois: f.pois || [], panos: f.panos || [] }));
-      } else { // старый формат — применяем к текущему этажу
+      } else { 
         const keep = {}; F.panos.forEach(p => keep[p.id] = p.src);
         (j.panos || []).forEach(p => { p.src = keep[p.id]; });
         Object.assign(F, { cor: j.cor || [], walls: j.walls || [], rooms: j.rooms || [], pois: j.pois || [], panos: j.panos || [] });
@@ -648,7 +639,7 @@ $('#tools').onclick = e => {
   tools(); plan(); sheet();
 };
 
-/* ---------- доступ ---------- */
+
 
 function setMode(m) {
   mode = m;
@@ -665,7 +656,7 @@ $('#mo').onclick = () => {
   if (unlocked) setMode('o');
 };
 
-/* ---------- панорамы ---------- */
+
 let RN, SC, CAM, MESH, V = null, TX = {}, raf = 0;
 const cv = $('#cv');
 
@@ -843,7 +834,7 @@ $('#pv').onclick = e => {
   }
 };
 
-/* ---------- вход в карту (вызывается из app.js) ---------- */
+
 window.Core = {
   open(d, r) {
     S = migrate(d); fi = 0; F = S.floors[0]; TX = {}; route = null; sh = null;
@@ -855,7 +846,7 @@ window.Core = {
   }
 };
 
-/* ---------- панорама на телефоне: щипок для зума ---------- */
+
 const pts = new Map();
 cv.addEventListener('pointerdown', e => { pts.set(e.pointerId, e); if (pts.size == 2) gd = null; });
 cv.addEventListener('pointermove', e => {
