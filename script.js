@@ -1,4 +1,4 @@
-const GW = 28, GH = 18, KEY = 'tk-spacemap-v1';
+const GW = 28, GH = 18, KEY = 'tk-spacemap-v1', PK = 'tk-spacemap-pin';
 const CATS = {
   stand: ['🏷', 'Стенд'],
   hall: ['🎤', 'Зал'],
@@ -14,6 +14,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const brg = (a, b) => Math.atan2(b.x - a.x, -(b.y - a.y)) * 180 / Math.PI;
 
 const floor = (name, o = {}) => ({ id: 'f' + uid(), name, bg: null, bgo: .7, cor: [], walls: [], rooms: [], pois: [], panos: [], ...o });
+
 const blank = () => ({ name: '', floors: [floor('Этаж 1')] });
 
 function migrate(d) {
@@ -41,6 +42,9 @@ let S = blank(),
 let F = S.floors[0], fi = 0; 
 
 function save() { if (window.Core && Core.onSave) Core.onSave(S); }
+
+const track = (k, t) => { if (mode == 'v' && window.Core && Core.onTrack) Core.onTrack(k, t); };
+let undoPlan = null;
 
 function toast(t) {
   const e = $('#toast');
@@ -331,6 +335,7 @@ svg.onpointerup = e => {
 };
 
 svg.onpointercancel = () => { if (dg && dg.moved) save(); dg = null; pt = null; plan(); };
+
 svg.addEventListener('touchmove', e => { if (dg) e.preventDefault(); }, { passive: false });
 
 function tap(x, y) {
@@ -338,7 +343,7 @@ function tap(x, y) {
         pn = F.panos.find(p => p.x == x && p.y == y),
         o = mode == 'o';
         
-  if (poi) { sh = { t: o ? 'ep' : 'pv', id: poi.id }; }
+  if (poi) { sh = { t: o ? 'ep' : 'pv', id: poi.id }; if (!o) track('poi', poi.id); }
   else if (pn) { if (o && tool != 'sel' || o) { sh = { t: 'en', id: pn.id }; } else { openPano(pn.id); } }
   else if (o && tool == 'poi' && canPut(x, y)) {
     const p = { id: 'p' + uid(), x, y, name: 'Новая точка', cat: 'other', desc: '' };
@@ -405,7 +410,7 @@ function sheet() {
   }
   if (sh.t == 'en') {
     const p = N(sh.id);
-    h = head('📷', 'Панорама', p.src ? 'своё фото' : 'без фото') + `<label>Название</label><input type="text" data-f="name" value="${esc(p.name)}"><label>Загрузить панораму 360° (equirectangular)</label><input type="file" accept="image/*" data-up="pano"><label>Поворот относительно плана: ${p.rot}°</label><input type="range" min="0" max="359" value="${p.rot}" data-f="rot" style="width:100%"><div class="btns"><button class="pri" data-a="pano" data-id="${p.id}">Открыть и добавить точки</button><button class="del" data-a="deln">Удалить</button></div>`;
+    h = head('📷', 'Панорама', p.src ? 'своё фото' : 'без фото') + `<label>Название</label><input type="text" data-f="name" value="${esc(p.name)}"><div class="btns"><button class="pri" data-a="cap">📱 Снять камерой телефона</button></div><label>…или загрузить готовую панораму 360° (пропорции 2:1)</label><input type="file" accept="image/*" data-up="pano"><label>Поворот относительно плана: ${p.rot}°</label><input type="range" min="0" max="359" value="${p.rot}" data-f="rot" style="width:100%"><div class="btns"><button class="pri" data-a="pano" data-id="${p.id}">Открыть и добавить точки</button><button class="del" data-a="deln">Удалить</button></div>`;
   }
   if (sh.t == 'er') {
     const r = R_(sh.id);
@@ -414,6 +419,7 @@ function sheet() {
   if (sh.t == 'rt') {
     recalc();
     const r = route, m = r.path ? (r.path.length - 1) * 2 : 0;
+    if (r.path && r.tk != r.from + '>' + r.to) { r.tk = r.from + '>' + r.to; track('route', r.to); }
     h = head('🧭', 'Маршрут', 'по плану здания') + `<label>Откуда</label><select data-r="from">${opts(r.from)}</select><label>Куда</label><select data-r="to">${opts(r.to)}</select>` + (r.path ? `<div class="stat"><span>${m} м<small>путь</small></span><span>${Math.max(1, Math.round(m / 80))} мин<small>пешком</small></span><span>${r.tour.length}<small>панорам</small></span></div><div class="btns"><button class="pri" data-a="tour">Пройти по панорамам</button></div>` : `<p><small>${r.from == r.to ? 'Выберите разные точки.' : 'Маршрут не найден: проверьте, что коридоры соединены.'}</small></p>`);
   }
   if (sh.t == 'menu') {
@@ -452,6 +458,7 @@ $('#sheet').oninput = e => {
 };
 
 const okUrl = u => typeof u == 'string' && /^(https?:\/\/|data:image\/)/.test(u) && !/["<>\s]/.test(u);
+
 const isEmpty = f => !f.bg && !f.cor.length && !f.rooms.length && !f.pois.length && !f.panos.length;
 
 function cleanFloor(f, used) {
@@ -543,10 +550,10 @@ $('#sheet').onchange = async e => {
                 const n = N(sh.id); 
                 n.src = publicUrl; 
                 n.demo = null; 
-                delete TX[n.id];
+                dropTex(n.id);
                 save(); plan(); sheet(); toast('Панорама загружена'); 
             } else {
-                /* ошибка уже показана в uploadPanorama */
+                
             }
         } catch (err) {
             toast('Ошибка при загрузке');
@@ -581,6 +588,7 @@ $('#sheet').onclick = e => {
   if (['delp', 'deln', 'delr', 'nobg', 'imp', 'delf'].includes(a)) pushState();
 
   if (a == 'x') { sh = null; }
+  if (a == 'cap') { const id = sh.id; sh = null; sheet(); Capture.open(id); return; }
   if (a == 'to') { route = { from: (F.pois.find(p => p.id != sh.id) || {}).id, to: sh.id }; sh = { t: 'rt' }; }
   if (a == 'pano') { openPano(b.dataset.id, undefined); return; }
   if (a == 'tour') { if (!route.tour.length) return toast('Вдоль маршрута нет панорам'); openPano(route.tour[0], route.tour); return; }
@@ -589,6 +597,7 @@ $('#sheet').onclick = e => {
   if (a == 'delr') { F.rooms = F.rooms.filter(r => r.id != sh.id); sh = null; }
   if (a == 'dlfloor') { downloadFloor(); return; }
   if (a == 'nobg') { F.bg = null; }
+  if (a == 'pin') { localStorage.removeItem(PK); unlocked = false; toast('PIN сброшен: задайте новый при следующем входе'); setMode('v'); }
   if (a == 'imp') {
     try {
       const j = JSON.parse($('#json').value);
@@ -621,7 +630,7 @@ $('#sheet').onclick = e => {
 
 $('#chips').onclick = e => {
   const b = e.target.closest('[data-c]');
-  if (b) { sh = { t: 'pv', id: b.dataset.c }; plan(); sheet(); }
+  if (b) { sh = { t: 'pv', id: b.dataset.c }; track('poi', b.dataset.c); plan(); sheet(); }
 };
 
 $('#rbtn').onclick = () => {
@@ -639,7 +648,12 @@ $('#tools').onclick = e => {
   tools(); plan(); sheet();
 };
 
-
+async function hash(s) {
+  try {
+    const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('tk' + s));
+    return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
+  } catch { return btoa(s); }
+}
 
 function setMode(m) {
   mode = m;
@@ -653,9 +667,30 @@ function setMode(m) {
 $('#mv').onclick = () => setMode('v');
 
 $('#mo').onclick = () => {
-  if (unlocked) setMode('o');
+  if (unlocked) return setMode('o');
+  let has = null;
+  try { has = localStorage.getItem(PK); } catch {}
+  
+  const md = $('#modal'), bx = md.firstElementChild;
+  md.hidden = false;
+  bx.innerHTML = `<h3>${has ? 'Вход для организатора' : 'Задайте PIN организатора'}</h3><p><small>${has ? 'Введите PIN, чтобы редактировать карту.' : 'Минимум 4 символа. Он защитит редактор от посетителей.'}</small></p><input type="password" id="pin" autocomplete="off"><div class="btns"><button class="pri" id="pok">${has ? 'Войти' : 'Сохранить'}</button><button id="pcn">Отмена</button></div>`;
+  
+  const f = $('#pin');
+  f.focus();
+  $('#pcn').onclick = () => md.hidden = true;
+  
+  const go = async () => {
+    const v = f.value;
+    if (v.length < 4) return toast('PIN короче 4 символов');
+    const hh = await hash(v);
+    if (!has) { try { localStorage.setItem(PK, hh); } catch {} }
+    else if (hh != has) return toast('Неверный PIN');
+    unlocked = true; md.hidden = true; setMode('o');
+  };
+  
+  $('#pok').onclick = go;
+  f.onkeydown = e => { if (e.key == 'Enter') go(); };
 };
-
 
 let RN, SC, CAM, MESH, V = null, TX = {}, raf = 0;
 const cv = $('#cv');
@@ -704,6 +739,8 @@ function gen(name) {
   return c;
 }
 
+function dropTex(id) { if (TX[id]) { TX[id].dispose(); delete TX[id]; } }
+
 function tex(p) {
   if (TX[p.id]) return TX[p.id];
   const t = p.src ? new THREE.TextureLoader().setCrossOrigin('anonymous').load(p.src, undefined, undefined, () => fetch(p.src, { method: 'HEAD' }).then(r => { console.error('pano load failed', p.src, r.status); toast(r.ok ? 'Панорама скачивается, но не читается как изображение' : 'Панорама недоступна: HTTP ' + r.status + ' (бакет не публичный или файл удалён)'); }).catch(() => toast('Панорама не загрузилась: нет сети или заблокировано CORS'))) : new THREE.CanvasTexture(gen(p.demo || p.name));
@@ -724,12 +761,13 @@ function openPano(id, tour) {
     RN.setPixelRatio(Math.min(devicePixelRatio, 2));
     SC = new THREE.Scene();
     CAM = new THREE.PerspectiveCamera(75, 1, .1, 1100);
-    const g = new THREE.SphereGeometry(500, 48, 32);
+    const g = new THREE.SphereGeometry(500, 80, 56);
     g.scale(-1, 1, 1);
     MESH = new THREE.Mesh(g, new THREE.MeshBasicMaterial());
     SC.add(MESH);
   }
   const p = N(id);
+  track('pano', id);
   V = { ...(V || { yaw: 0, pitch: 0, fov: 75 }), id, add: false, tour: tour === undefined ? (V && V.tour) : tour };
   sh = null; sheet();
   $('#pv').hidden = false;
@@ -780,6 +818,7 @@ function loop() {
 let gd = null;
 
 cv.onpointerdown = e => { gd = { x: e.clientX, y: e.clientY, m: 0 }; cv.setPointerCapture(e.pointerId); };
+
 cv.onpointermove = e => {
   if (!gd) return;
   const dx = e.clientX - gd.x, dy = e.clientY - gd.y;
@@ -788,6 +827,7 @@ cv.onpointermove = e => {
   const k = V.fov / cv.clientHeight;
   V.yaw -= dx * k; V.pitch = Math.max(-85, Math.min(85, V.pitch + dy * k));
 };
+
 cv.onpointerup = e => {
   if (gd && gd.m < 6) {
     $('#pvinfo').style.display = 'none';
@@ -802,7 +842,8 @@ cv.onpointerup = e => {
   }
   gd = null;
 };
-cv.onwheel = e => { V.fov = Math.max(40, Math.min(100, V.fov + e.deltaY * .05)); };
+
+cv.onwheel = e => { V.fov = Math.max(30, Math.min(100, V.fov + e.deltaY * .05)); };
 
 $('#pv').onclick = e => {
   const b = e.target.closest('button');
@@ -834,7 +875,6 @@ $('#pv').onclick = e => {
   }
 };
 
-
 window.Core = {
   open(d, r) {
     S = migrate(d); fi = 0; F = S.floors[0]; TX = {}; route = null; sh = null;
@@ -842,13 +882,14 @@ window.Core = {
     if (V) { $('#pv').hidden = true; V = null; }
     unlocked = r != 'view';
     setMode('v');
+    track('map', '');
     $('.seg').style.display = unlocked ? '' : 'none';
   }
 };
 
-
 const pts = new Map();
 cv.addEventListener('pointerdown', e => { pts.set(e.pointerId, e); if (pts.size == 2) gd = null; });
+
 cv.addEventListener('pointermove', e => {
   if (!pts.has(e.pointerId)) return;
   const two = pts.size == 2, [a, b] = [...pts.values()],
@@ -856,8 +897,9 @@ cv.addEventListener('pointermove', e => {
   pts.set(e.pointerId, e);
   if (two && V) {
     const [c, d] = [...pts.values()];
-    V.fov = Math.max(40, Math.min(100, V.fov * before / Math.max(1, Math.hypot(c.clientX - d.clientX, c.clientY - d.clientY))));
+    V.fov = Math.max(30, Math.min(100, V.fov * before / Math.max(1, Math.hypot(c.clientX - d.clientX, c.clientY - d.clientY))));
   }
 });
+
 cv.addEventListener('pointerup', e => pts.delete(e.pointerId));
 cv.addEventListener('pointercancel', e => { pts.delete(e.pointerId); gd = null; });
