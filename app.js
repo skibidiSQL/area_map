@@ -1,4 +1,3 @@
-/* Карта пространства: бессерверная PWA-версия (Supabase + IndexedDB). */
 (() => {
 const SUPABASE_URL = 'https://rlzgzbviuvkuzhcfyzcg.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_STl70_TA-R8cRWX9qsw_DA_GxuGw0WZ';
@@ -231,8 +230,6 @@ async function openLink(id, tok) {
   openRec(r, ro, !!tok);
 }
 
-/* ---------- загрузка панорам в Supabase Storage ---------- */
-// уменьшаем до 4096 px по ширине: больше многие телефоны не принимают как WebGL-текстуру (будет чёрная сфера)
 const shrink = (f, w, q) => new Promise((ok, no) => {
   const u = URL.createObjectURL(f), i = new Image();
   i.onload = () => {
@@ -260,9 +257,7 @@ window.uploadImage = async function (file, { max = 4096, q = .85, prefix = '' } 
     return url;
   } catch (e) { console.error(e); toast('Не удалось обработать файл'); return null; }
 };
-// панорамы — до 8192 px по ширине (иначе при увеличении картинка мутная); слабые телефоны WebGL уменьшит сам
 window.uploadPanorama = file => window.uploadImage(file, { max: 8192, q: .88 });
-/* ---------------------------------------------------------- */
 
 (async () => {
   body.toggleAttribute('data-embed', EMB);
