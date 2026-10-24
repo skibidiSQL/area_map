@@ -493,8 +493,18 @@ const vec = (y, p) => {
   return new THREE.Vector3(Math.sin(a) * Math.cos(b), Math.sin(b), -Math.cos(a) * Math.cos(b));
 };
 
-function openPano(id, tour) {
-  if (typeof THREE == 'undefined') return toast('Не удалось загрузить 3D-библиотеку');
+async function openPano(id, tour) {
+  if (typeof THREE == 'undefined') {
+    toast('Скачивание 3D-движка...');
+    await new Promise(resolve => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+      s.onload = resolve;
+      document.head.appendChild(s);
+    });
+    if (typeof THREE == 'undefined') return toast('Ошибка: проверьте интернет');
+  }
+
   if (!RN) {
     RN = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
     RN.setPixelRatio(Math.min(devicePixelRatio, 2));
