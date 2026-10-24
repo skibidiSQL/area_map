@@ -1,6 +1,4 @@
 'use strict';
-/* Кладёт three.js и шрифт Manrope в папку vendor/, чтобы сайт не зависел от чужих CDN.
-   Запускается сам при старте сервера и при сборке Docker; вручную: node vendor.js */
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const DIR = path.join(__dirname, 'vendor'), FD = path.join(DIR, 'fonts'),
       THREE = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
